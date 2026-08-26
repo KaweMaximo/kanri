@@ -15,9 +15,10 @@ adaptador ELM327 Bluetooth e mostra num display.
 |---|---|
 | **Versão** | 0.1.0 — fundação (sem features de telemetria ainda) |
 | **Veículo alvo** | Mitsubishi Lancer 2.0 2014, motor 4B11 |
+| **Adaptador** | ELM327 Placa Dupla VS1.5 (PIC18F25K80), Bluetooth Classic |
 | **Placa** | ESP32 **clássico** (WROOM-32 / DevKit v1) — [não serve S3/C3](docs/HARDWARE.md#placa-tem-que-ser-esp32-clássico) |
 | **Framework** | Arduino sobre ESP-IDF, via PlatformIO |
-| **Testes** | 98 casos rodando no PC, em ~1,4 s |
+| **Testes** | 122 casos no PC em ~2 s, **100% de cobertura de linhas** em `lib/` |
 
 ---
 
@@ -141,8 +142,12 @@ Ou instale a extensão **PlatformIO IDE** no VS Code.
 pio test -e native
 ```
 
-Isso compila a lógica pura com o `g++` do seu PC e roda 98 testes em ~1,4 s.
+Isso compila a lógica pura com o `g++` do seu PC e roda 122 testes em ~2 s.
 **Rode isso antes de qualquer commit.**
+
+> **Política do projeto: código novo em `lib/` chega com teste.** Não é
+> recomendação — o CI exige **100% de cobertura de linhas** e bloqueia PR que
+> mexa em `lib/` sem mexer em `test/`. Ver **[docs/TESTING.md](docs/TESTING.md)**.
 
 ### 3. Compilar o firmware
 
@@ -162,6 +167,7 @@ pio device monitor          # 115200 baud
 | Comando | O que faz |
 |---------|-----------|
 | `pio test -e native -f test_safety_guard` | Roda só uma suíte |
+| `pio test -e native_coverage` + `gcovr --root . --filter 'lib/.*'` | Mede cobertura |
 | `pio test -e native -v` | Mostra cada asserção |
 | `pio run -e esp32dev -t clean` | Limpa o build |
 | `pio run -t size` | Detalha o uso de flash e RAM |
@@ -187,10 +193,11 @@ kanri/
 │
 ├── test/                   # TESTES — rodam no PC
 │   ├── helpers/            # dublês (FakeClock, FakeTransport, …)
-│   └── test_*/             # 5 suítes, 98 casos
+│   └── test_*/             # 6 suítes, 122 casos
 │
 └── docs/
     ├── SAFETY.md           # ⚠️ requisitos de segurança — leia primeiro
+    ├── TESTING.md          # política de testes (obrigatória)
     ├── ARCHITECTURE.md     # decisões de projeto e diagramas
     ├── HARDWARE.md         # veículo, placa, adaptador, alimentação
     └── ROADMAP.md          # o que vem em cada versão
@@ -210,7 +217,7 @@ e a topologia recomendada em
 | Item | O que usar |
 |------|-----------|
 | Placa | ESP32-WROOM-32 / DevKit v1 (**não** S3, C3 ou C6) |
-| Adaptador | ELM327 **Bluetooth Classic** (não BLE) |
+| Adaptador | ELM327 Placa Dupla VS1.5 / PIC18F25K80, **Bluetooth Classic** — [por que esse é dos bons](docs/HARDWARE.md#adaptador-elm327--o-modelo-confirmado-deste-projeto) |
 | Alimentação | Buck ≥40 V entrada, ≥1 A + TVS + proteção de polaridade + fusível |
 | Display | A definir na v0.3 |
 
@@ -218,8 +225,8 @@ e a topologia recomendada em
 
 ## Contribuindo
 
-Leia **[CLAUDE.md](CLAUDE.md)** (convenções) e
-**[docs/SAFETY.md](docs/SAFETY.md)** (requisitos) primeiro.
+Leia **[CLAUDE.md](CLAUDE.md)** (convenções), **[docs/SAFETY.md](docs/SAFETY.md)**
+(requisitos) e **[docs/TESTING.md](docs/TESTING.md)** (política de testes) primeiro.
 
 Resumo do fluxo:
 

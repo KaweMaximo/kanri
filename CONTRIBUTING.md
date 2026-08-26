@@ -1,7 +1,9 @@
 # Contribuindo com o Kanri
 
-Antes de tudo: leia **[docs/SAFETY.md](docs/SAFETY.md)** e
-**[CLAUDE.md](CLAUDE.md)**.
+Antes de tudo, leia:
+- **[docs/SAFETY.md](docs/SAFETY.md)** — requisitos de segurança
+- **[docs/TESTING.md](docs/TESTING.md)** — política de testes (obrigatória)
+- **[CLAUDE.md](CLAUDE.md)** — convenções
 
 ---
 
@@ -17,7 +19,11 @@ pip install platformio          # ou instale a extensão PlatformIO no VS Code
 # Faça isso uma vez por clone — o Git não versiona a configuração de hooks.
 git config core.hooksPath .githooks
 
-pio test -e native              # confirma que tudo funciona: 98 casos verdes
+pio install                     # baixa dependências (Unity, plataformas)
+pio test -e native              # confirma que tudo funciona: 122 casos verdes
+
+# Opcional, para medir cobertura localmente
+pip install gcovr
 ```
 
 ---
@@ -52,6 +58,7 @@ gh pr create
 | Nunca commite direto na `main` | A `main` tem que estar sempre compilando e testada |
 | Uma branch por assunto | PR pequeno é revisado de verdade; PR grande é aprovado sem ler |
 | Merge só via PR com CI verde | O CI é a rede de segurança, não uma formalidade |
+| Código novo em `lib/` chega com teste | Cobrado pelo CI: 100% de cobertura de linhas. Ver [TESTING.md](docs/TESTING.md) |
 | Commits em Conventional Commits | Permite gerar CHANGELOG e deixa o `git log` legível |
 
 ---
@@ -68,7 +75,7 @@ Faça logo depois de criar o repositório remoto.
 | Branch name pattern | `main` |
 | Require a pull request before merging | ✅ |
 | Require status checks to pass before merging | ✅ |
-| ↳ Status checks obrigatórios | `Testes unitários (native)`, `Build do firmware (esp32dev)`, `Conventional Commits` |
+| ↳ Status checks obrigatórios | `Testes unitários (native)`, `Cobertura (100% linhas)`, `Política de testes`, `Build do firmware (esp32dev)`, `Conventional Commits` |
 | Require branches to be up to date before merging | ✅ |
 | Do not allow bypassing the above settings | ✅ |
 
@@ -82,6 +89,8 @@ gh api -X PUT repos/:owner/:repo/branches/main/protection \
     "strict": true,
     "contexts": [
       "Testes unitários (native)",
+      "Cobertura (100% linhas)",
+      "Política de testes",
       "Build do firmware (esp32dev)",
       "Conventional Commits"
     ]
@@ -109,6 +118,8 @@ testes rodando no PC:
 3. **Adaptador de hardware** em `src/hal/` — burro, sem lógica.
 4. **Dublê de teste** em `test/helpers/` — header-only.
 5. **Testes** em `test/test_<coisa>/` — com **invariantes**, não só exemplos.
+   Isso não é opcional: o CI exige 100% de cobertura de linhas em `lib/`.
+   Ver [docs/TESTING.md](docs/TESTING.md).
 
 Se você se pegar querendo incluir `Arduino.h` em `lib/`, pare: o que você
 precisa é de uma porta nova.

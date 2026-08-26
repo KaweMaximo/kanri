@@ -277,6 +277,37 @@ void test_politica_de_retentativa(void) {
   TEST_ASSERT_TRUE(kanri::obd::is_transient(ParseStatus::BufferFull));
 }
 
+// to_string e is_transient alimentam log, display e politica de retentativa.
+// Um nullptr ali viraria travamento; um status esquecido viraria decisao errada.
+void test_to_string_cobre_todos_os_status(void) {
+  const ParseStatus all[] = {
+      ParseStatus::Ok,               ParseStatus::Empty,
+      ParseStatus::NoData,           ParseStatus::Searching,
+      ParseStatus::UnableToConnect,  ParseStatus::BusError,
+      ParseStatus::Stopped,          ParseStatus::BufferFull,
+      ParseStatus::UnknownCommand,   ParseStatus::RawTooLong,
+      ParseStatus::InvalidCharacter, ParseStatus::OddHexDigits,
+      ParseStatus::TooShort,         ParseStatus::PayloadTooLong,
+      ParseStatus::UnexpectedMode,   ParseStatus::UnexpectedPid,
+      ParseStatus::NotImplemented,
+  };
+  for (const ParseStatus status : all) {
+    const char* name = kanri::obd::to_string(status);
+    TEST_ASSERT_NOT_NULL(name);
+    TEST_ASSERT_TRUE(name[0] != '\0');
+    // is_transient tem de ter uma resposta definida para todo status.
+    (void)kanri::obd::is_transient(status);
+  }
+}
+
+// Status com valor fora do enum (memoria corrompida). Base uint8_t, entao o
+// cast e legal. A defesa tem de responder "nao insista" e "Unknown".
+void test_status_corrompido_e_tratado_com_seguranca(void) {
+  const ParseStatus corrupted = static_cast<ParseStatus>(240);
+  TEST_ASSERT_FALSE(kanri::obd::is_transient(corrupted));
+  TEST_ASSERT_EQUAL_STRING("Unknown", kanri::obd::to_string(corrupted));
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -314,6 +345,8 @@ int main() {
 
   RUN_TEST(test_fuzz_deterministico_mantem_invariantes);
   RUN_TEST(test_politica_de_retentativa);
+  RUN_TEST(test_to_string_cobre_todos_os_status);
+  RUN_TEST(test_status_corrompido_e_tratado_com_seguranca);
 
   return UNITY_END();
 }

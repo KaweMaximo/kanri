@@ -47,16 +47,27 @@ O objetivo desta versão é ter a estrutura, a rede de segurança e o CI no luga
 - Catálogo de PIDs para o Mitsubishi Lancer 2.0 2014 (4B11)
 
 #### Testes
-- 98 casos em 5 suítes Unity, rodando no PC em ~1,4 s
+- 122 casos em 6 suítes Unity, rodando no PC em ~2 s
+- **100% de cobertura de linhas e de funções** em `lib/`; 92,7% de ramos
 - Dublês de teste header-only: `FakeClock`, `FakeTransport`, `FakeDisplay`,
-  `FakeConfigStore`
-- Testes de invariante: varredura exaustiva dos 256 modos OBD2, de todas as
-  combinações estado × evento, fuzz determinístico de 5.000 entradas no
-  parser, e 500 amostras de configuração corrompida
+  `FakeConfigStore` — com testes próprios, porque dublê com bug transforma
+  todos os testes que o usam em teatro
+- `test_obd_client`: prova que um pedido proibido não escreve **um único byte**
+  no transporte, e não apenas que a função devolve erro
+- Quatro padrões de invariante: varredura exaustiva (256 modos OBD2, todas as
+  combinações estado × evento), fuzz determinístico (5.000 entradas no parser),
+  corrupção simulada (flash 0xFF, 0x00 e 500 amostras de ruído) e verificação
+  de silêncio (nenhum byte no transporte)
+- Testes do comportamento defensivo contra enum corrompido — possível porque
+  todos os `enum class` têm base `uint8_t`, então o cast é C++ legal, não UB
+- Ambiente `native_coverage` para medir cobertura com gcov/gcovr
 
 #### Infraestrutura
-- CI no GitHub Actions: testes unitários, build do firmware e validação de
-  Conventional Commits, todos em todo PR
+- CI no GitHub Actions com 5 jobs em todo PR: testes unitários, cobertura
+  (falha abaixo de 100% de linhas), política de testes (PR que mexe em `lib/`
+  sem mexer em `test/` é bloqueado, com dispensa explícita via label
+  `sem-teste-necessario`), build do firmware e Conventional Commits
+- Relatório de cobertura publicado no resumo do PR e como artefato HTML
 - Hook local de `commit-msg` validando Conventional Commits
 - `.gitignore`, `.editorconfig`, `.clang-format`, `.gitattributes`
 - Template de Pull Request com checklist de segurança
@@ -65,8 +76,11 @@ O objetivo desta versão é ter a estrutura, a rede de segurança e o CI no luga
 - `README.md` com arquitetura em Mermaid e justificativa da escolha do
   framework
 - `docs/SAFETY.md` — requisitos de segurança, incluindo os elétricos
+- `docs/TESTING.md` — política de testes obrigatória e os padrões de invariante
 - `docs/ARCHITECTURE.md` — decisões de projeto, diagramas de estado e sequência
-- `docs/HARDWARE.md` — veículo, placa, adaptador, alimentação
+- `docs/HARDWARE.md` — veículo, placa, adaptador (ELM327 Placa Dupla VS1.5 /
+  PIC18F25K80 confirmado, e por que ser um clone bom **aumenta** a importância
+  da allowlist), alimentação e consumo parasita
 - `docs/ROADMAP.md` — o que entra em cada versão
 - `CLAUDE.md` — convenções do projeto
 - `CONTRIBUTING.md` — fluxo de trabalho

@@ -193,6 +193,22 @@ void test_allowlist_exige_correspondencia_exata(void) {
   assert_verdict(RequestVerdict::ForbiddenAtCommand, at("ATSP"));
 }
 
+// ATSPA<h> = "tente o protocolo h, com deteccao automatica". Variante
+// legitima do ATSP, e precisa passar pela allowlist.
+void test_atsp_com_deteccao_automatica_e_permitido(void) {
+  assert_verdict(RequestVerdict::Allowed, at("ATSPA6"));
+  assert_verdict(RequestVerdict::Allowed, at("ATSPA0"));
+  assert_verdict(RequestVerdict::Allowed, at("ATSPA"));
+  // Mas nao qualquer coisa depois do A:
+  assert_verdict(RequestVerdict::ForbiddenAtCommand, at("ATSPAZ"));
+  assert_verdict(RequestVerdict::ForbiddenAtCommand, at("ATSPA66"));
+}
+
+void test_verdict_corrompido_tem_nome_utilizavel(void) {
+  const RequestVerdict corrupted = static_cast<RequestVerdict>(150);
+  TEST_ASSERT_EQUAL_STRING("Unknown", kanri::obd::to_string(corrupted));
+}
+
 void test_to_string_nunca_devolve_nulo(void) {
   const RequestVerdict all[] = {
       RequestVerdict::Allowed,       RequestVerdict::ForbiddenMode,
@@ -227,6 +243,8 @@ int main() {
   RUN_TEST(test_o_que_nao_comeca_com_at_e_bloqueado);
   RUN_TEST(test_comandos_at_malformados);
   RUN_TEST(test_allowlist_exige_correspondencia_exata);
+  RUN_TEST(test_atsp_com_deteccao_automatica_e_permitido);
+  RUN_TEST(test_verdict_corrompido_tem_nome_utilizavel);
   RUN_TEST(test_to_string_nunca_devolve_nulo);
 
   return UNITY_END();

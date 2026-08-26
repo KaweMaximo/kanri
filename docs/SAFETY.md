@@ -105,8 +105,15 @@ firmware.
 | Ruído binário sobrevive à limpeza como `#` | "Falhar fechado": byte estranho **provoca** a rejeição em vez de ser varrido para debaixo do tapete |
 | Todo retorno vem com um `ParseStatus` explícito | Não existe "meio válido" |
 
-Isso é verificado por **31 testes**, incluindo um *fuzz* determinístico de
+Isso é verificado por **33 testes**, incluindo um *fuzz* determinístico de
 5.000 entradas pseudoaleatórias que confere as invariantes do parser.
+
+E há uma verificação a mais, no `ObdClient`: `test_obd_client` prova que um
+pedido proibido **não escreve um único byte** no transporte. Não é "escreve e
+a ECU ignora" — é "nunca sai da nossa memória". Essa distinção importa porque
+o adaptador deste projeto (PIC18F25K80) implementa o conjunto AT completo e
+**é capaz de escrever na ECU** — ver
+[HARDWARE.md](HARDWARE.md#️-consequência-de-segurança-este-adaptador-é-capaz-de-escrever).
 
 ### Nunca exiba um número em que você não confia
 
@@ -242,3 +249,4 @@ Passe por esta lista:
 - [ ] Nenhum `while` sem prazo e sem alimentar o watchdog
 - [ ] Todo valor exibido tem `valid == true` verificado
 - [ ] `pio test -e native` verde
+- [ ] Cobertura de linhas de `lib/` segue em 100% — ver [TESTING.md](TESTING.md)

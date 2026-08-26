@@ -77,28 +77,78 @@ tiver um desses, o alvo muda. Confirme antes de comprar a placa.
 
 ---
 
-## Adaptador ELM327
+## Adaptador ELM327 — o modelo confirmado deste projeto
 
-| Item | Recomendação |
-|------|--------------|
-| Interface | Bluetooth **Classic** (SPP) |
-| Versão de firmware anunciada | v1.5 costuma ser mais estável que os "v2.1" (que geralmente são v1.4 com rótulo falso) |
-| PIN de pareamento | Quase sempre `1234` ou `0000` |
-| Nome Bluetooth | Quase sempre `OBDII` |
+**Scanner Automotivo OBD2 "Placa Dupla" VS1.5 — ELM327 com PIC18F25K80,
+Bluetooth Classic.**
 
-**Sobre clones:** praticamente todos os adaptadores baratos são clones do chip
-original da ELM Electronics. Eles funcionam, mas:
+Essa combinação é uma **boa notícia**, e vale entender por quê — ajuda a
+interpretar o comportamento quando algo não funcionar.
 
-- respondem devagar e às vezes fora de ordem;
-- emitem `BUFFER FULL` sob carga;
-- alguns retornam lixo binário com contato ruim;
-- alguns não implementam todos os comandos `AT`.
+| Característica | O que significa na prática |
+|---|---|
+| **PIC18F25K80** | É o microcontrolador. Tem módulo CAN nativo (ECAN), 32 KB de flash e ~3,6 KB de RAM. É a base usada nos clones **melhores**. Os inferiores usam PIC18F2480 (menos RAM, engasga em resposta longa) ou MCUs genéricos com firmware reduzido. |
+| **Placa dupla** | Duas placas empilhadas: uma com o MCU e os transceivers, outra com o módulo Bluetooth. É o layout associado às versões mais completas — e permite inspecionar/trocar o módulo BT se precisar. |
+| **VS1.5** | Versão de firmware anunciada. Aqui `1.5` é bom sinal: os adaptadores que anunciam "v2.1" são, na prática, quase sempre v1.4 com rótulo trocado. |
+| **Bluetooth Classic** | Confirma o alvo do projeto: **ESP32-WROOM-32 clássico** com `BluetoothSerial` (SPP). O módulo costuma ser um CSR BC417 (Bluetooth 2.x, perfil SPP). |
 
-**Isso não é problema a ser contornado — é o cenário normal.** É exatamente
-por isso que o parser em `lib/kanri_obd/src/elm327_parser.cpp` trata toda
-resposta como entrada hostil, e por isso ele tem 31 testes.
+### Parâmetros para configurar
 
----
+| Campo em `KanriSettings` | Valor típico neste adaptador |
+|---|---|
+| `adapter_name` | `OBDII` |
+| `adapter_pin` | `1234` (às vezes `0000` ou `6789`) |
+| `adapter_mac` | Deixe vazio na primeira vez; preencha depois de descobrir, para conectar mais rápido |
+
+Descobrir o MAC e o nome reais, no Linux:
+
+```bash
+bluetoothctl
+> scan on
+# procure a linha do OBDII e anote o endereço AA:BB:CC:DD:EE:FF
+```
+
+### ⚠️ Consequência de segurança: este adaptador é capaz de escrever
+
+Um detalhe importante e contraintuitivo: **por ser um clone bom, ele
+implementa o conjunto de comandos AT completo** — incluindo `ATSH` (definir
+header CAN), `ATCRA` (filtro) e os comandos de envio de quadro arbitrário.
+
+Ou seja: **o hardware que você tem é perfeitamente capaz de escrever na ECU.**
+A única coisa que impede isso é o firmware do Kanri.
+
+É exatamente por isso que a allowlist em
+[`safety.h`](../lib/kanri_obd/include/kanri_obd/safety.h) não é
+paranoia teórica, e por isso `ATSH` está bloqueado com teste. Um adaptador
+"burro" perdoaria um bug no nosso lado; este não perdoa.
+Ver [SAFETY.md](SAFETY.md#1-somente-leitura--a-regra-que-não-se-negocia).
+
+### O que esperar em operação
+
+Mesmo sendo dos bons, é um clone. Comportamentos **normais**, não defeitos:
+
+- responde `SEARCHING...` na primeira consulta, antes do dado;
+- pode responder fora de ordem sob carga;
+- emite `BUFFER FULL` se você consultar rápido demais (comece com
+  `poll_interval_ms = 200`);
+- pode devolver lixo com contato ruim no conector;
+- `NO DATA` para PID que a ECU do 4B11 não implementa — isso é a ECU, não o
+  adaptador.
+
+O parser em `lib/kanri_obd/src/elm327_parser.cpp` trata todos esses casos, e
+tem 33 testes justamente por causa disso.
+
+### ⚡ Consumo parasita — atenção real
+
+O módulo Bluetooth fica ligado e detectável enquanto o adaptador estiver
+plugado, consumindo na ordem de **30–50 mA continuamente**. O pino 16 do OBD2
+normalmente é energizado **mesmo com o carro desligado**.
+
+Contas rápidas: 40 mA × 24 h ≈ 1 Ah/dia. Uma bateria de 60 Ah já parcialmente
+descarregada pode não dar partida depois de alguns dias assim.
+
+**Desplugue o adaptador quando não estiver usando**, ou instale uma chave na
+linha de +12 V.
 
 ## Alimentação — leia antes de ligar qualquer coisa
 

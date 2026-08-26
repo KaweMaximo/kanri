@@ -17,12 +17,15 @@ O esqueleto, a rede de segurança e o CI. Nenhuma feature de telemetria.
 - [x] Máquina de estados com invariantes de fail-safe
 - [x] Backoff exponencial
 - [x] Configuração com validação e `clamp_to_valid()`
-- [x] 98 testes unitários rodando no PC, incluindo *fuzz* determinístico
+- [x] 122 testes unitários rodando no PC, com **100% de cobertura de linhas**
+      em `lib/`, incluindo *fuzz* determinístico
+- [x] Política de testes cobrada pelo CI (cobertura + PR que mexe em `lib/`
+      sem mexer em `test/` é bloqueado) — ver [TESTING.md](TESTING.md)
 - [x] Watchdog armado
 - [x] CI no GitHub Actions: build + testes em todo PR
 - [x] Documentação de segurança, arquitetura e hardware
 
-**Como verificar:** `pio test -e native` → 98 casos verdes.
+**Como verificar:** `pio test -e native` → 122 casos verdes.
 `pio run -e esp32dev` → compila (RAM 6,6%, Flash 20,6%).
 
 ---
@@ -61,6 +64,9 @@ O primeiro dado real vindo do carro.
 ### Testes
 - [ ] `ObdClient` testado com `FakeTransport` — inclusive resposta parcial,
       timeout, lixo no meio, resposta atrasada do PID anterior
+- [ ] Manter 100% de cobertura de linhas: os testes de esqueleto em
+      `test_obd_client` vão **falhar** quando a implementação real entrar, e
+      isso é intencional — o vermelho lembra de atualizar a expectativa
 
 **Critério de pronto:** o firmware conecta no adaptador, lê RPM e temperatura
 do Lancer, e mostra no monitor serial.

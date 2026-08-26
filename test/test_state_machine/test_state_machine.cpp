@@ -208,6 +208,38 @@ void test_transicao_e_deterministica(void) {
   }
 }
 
+void test_to_string_cobre_todos_os_estados_e_eventos(void) {
+  for (const AppState state : kAllStates) {
+    const char* name = kanri::core::to_string(state);
+    TEST_ASSERT_NOT_NULL(name);
+    TEST_ASSERT_TRUE(name[0] != '\0');
+  }
+  for (const AppEvent event : kAllEvents) {
+    const char* name = kanri::core::to_string(event);
+    TEST_ASSERT_NOT_NULL(name);
+    TEST_ASSERT_TRUE(name[0] != '\0');
+  }
+}
+
+// Memoria corrompida pode deixar um enum com valor fora da lista. Como
+// AppState tem base uint8_t, TODOS os 256 valores sao representaveis — logo
+// este cast e legal em C++, nao e comportamento indefinido, e nos permite
+// testar de verdade a defesa em vez de so confiar nela.
+void test_estado_corrompido_cai_em_fault(void) {
+  const AppState corrupted = static_cast<AppState>(99);
+  assert_state(AppState::Fault, next_state(corrupted, AppEvent::DataValid));
+  // to_string tem de responder algo utilizavel, nunca nullptr: ele alimenta
+  // log e display, e um nullptr ali viraria travamento.
+  TEST_ASSERT_EQUAL_STRING("Unknown", kanri::core::to_string(corrupted));
+}
+
+void test_evento_corrompido_e_ignorado_com_seguranca(void) {
+  const AppEvent corrupted = static_cast<AppEvent>(200);
+  // Evento desconhecido em Polling nao pode derrubar a operacao normal.
+  assert_state(AppState::Polling, next_state(AppState::Polling, corrupted));
+  TEST_ASSERT_EQUAL_STRING("Unknown", kanri::core::to_string(corrupted));
+}
+
 // ---------------------------------------------------------------------------
 //  BACKOFF EXPONENCIAL
 // ---------------------------------------------------------------------------
@@ -288,6 +320,9 @@ int main() {
   RUN_TEST(test_boot_so_avanca_com_hardware_pronto);
   RUN_TEST(test_transicao_sempre_devolve_estado_valido);
   RUN_TEST(test_transicao_e_deterministica);
+  RUN_TEST(test_to_string_cobre_todos_os_estados_e_eventos);
+  RUN_TEST(test_estado_corrompido_cai_em_fault);
+  RUN_TEST(test_evento_corrompido_e_ignorado_com_seguranca);
 
   RUN_TEST(test_backoff_dobra_a_cada_falha);
   RUN_TEST(test_backoff_para_no_teto);
