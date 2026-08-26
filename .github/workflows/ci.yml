@@ -5,10 +5,11 @@
 #    1. testes    -> pio test -e native   (122 casos, com -Werror)
 #    2. cobertura -> exige 100% de linhas em lib/
 #    3. politica  -> mexer em lib/ sem mexer em test/ e bloqueado
-#    4. firmware  -> pio run -e esp32dev  (compila de verdade para o ESP32)
-#    5. commits   -> valida Conventional Commits
+#    4. changelog -> mudanca de codigo/infra sem CHANGELOG.md e bloqueada
+#    5. firmware  -> pio run -e esp32dev  (compila de verdade para o ESP32)
+#    6. commits   -> valida Conventional Commits
 #
-#  A regra do projeto: merge na main SO com os cinco verdes.
+#  A regra do projeto: merge na main SO com os seis verdes.
 #  Isso e configurado no GitHub (Settings > Branches), nao aqui.
 #  Ver CONTRIBUTING.md e docs/TESTING.md.
 # ============================================================================
@@ -216,7 +217,95 @@ jobs:
           exit 1
 
   # --------------------------------------------------------------------------
-  #  4. Build do firmware — testes passando NAO provam que compila para o
+  #  4. CHANGELOG — mudanca de codigo ou de infra tem de registrar o que mudou.
+  #
+  #  Por que cobrar isso? Porque um changelog lembrado so na hora do release
+  #  ja nasceu incompleto: ninguem reconstroi, tres meses depois, o que cada
+  #  commit significava para quem usa o firmware. O momento em que se sabe o
+  #  que mudou e o momento do PR.
+  #
+  #  So exige para mudanca de codigo/infra. PR de documentacao pura nao entra
+  #  na regra — corrigir typo em doc nao e nota de release.
+  #
+  #  Valvula de escape: label `sem-changelog`, visivel na revisao.
+  # --------------------------------------------------------------------------
+  changelog:
+    name: CHANGELOG atualizado
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verificar registro no CHANGELOG
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          DISPENSADO: ${{ contains(github.event.pull_request.labels.*.name, 'sem-changelog') }}
+        run: |
+          set -euo pipefail
+
+          MUDOU_CODIGO=$(git diff --name-only "$BASE" "$HEAD" \
+                          -- 'lib/**' 'src/**' 'test/**' \
+                             'platformio.ini' '.github/workflows/**' | wc -l)
+          MUDOU_CHANGELOG=$(git diff --name-only "$BASE" "$HEAD" \
+                          -- 'CHANGELOG.md' | wc -l)
+
+          echo "arquivos de codigo/infra alterados : $MUDOU_CODIGO"
+          echo "CHANGELOG.md alterado             : $MUDOU_CHANGELOG"
+          echo "label sem-changelog               : $DISPENSADO"
+
+          if [ "$MUDOU_CODIGO" -eq 0 ]; then
+            echo "Nenhuma mudanca de codigo ou infra. Nada a exigir."
+            exit 0
+          fi
+
+          if [ "$MUDOU_CHANGELOG" -gt 0 ]; then
+            echo "OK: codigo mudou e o CHANGELOG foi atualizado."
+            # Aviso (nao falha): a secao [Nao lancado] parece vazia?
+            if grep -qiE '^\s*Nada ainda' CHANGELOG.md; then
+              echo "::warning::A secao [Nao lancado] do CHANGELOG parece vazia. Confira se a entrada foi para o lugar certo."
+            fi
+            exit 0
+          fi
+
+          if [ "$DISPENSADO" = "true" ]; then
+            echo "AVISO: dispensado pela label 'sem-changelog'."
+            exit 0
+          fi
+
+          cat <<'FIM'
+
+            ✗ Este PR altera codigo ou infra sem atualizar o CHANGELOG.md.
+
+            Politica do projeto: toda mudanca de codigo ou de infra registra o
+            que mudou, no mesmo PR. Um changelog lembrado so na hora do release
+            ja nasceu incompleto.
+
+            O que fazer: acrescente uma entrada na secao [Nao lancado] do
+            CHANGELOG.md, escrita para quem vai LER daqui a seis meses — nao
+            uma copia da mensagem de commit.
+
+                ## [Nao lancado]
+
+                ### Adicionado
+                - suporte a leitura do PID 0x0C (rotacao do motor)
+
+            Secoes: Adicionado, Modificado, Descontinuado, Removido,
+                    Corrigido, Seguranca.
+
+            Se a mudanca realmente nao merece registro, adicione a label:
+
+                sem-changelog
+
+            Ver CONTRIBUTING.md secao "O CHANGELOG".
+
+          FIM
+          exit 1
+
+  # --------------------------------------------------------------------------
+  #  5. Build do firmware — testes passando NAO provam que compila para o
   #     hardware: a logica compila com g++, o firmware com
   #     xtensa-esp32-elf-gcc.
   # --------------------------------------------------------------------------
@@ -251,7 +340,7 @@ jobs:
         run: pio run -e esp32dev -t size
 
   # --------------------------------------------------------------------------
-  #  5. Conventional Commits — mensagem padronizada permite gerar CHANGELOG
+  #  6. Conventional Commits — mensagem padronizada permite gerar CHANGELOG
   #     e deixa `git log` legivel meses depois.
   # --------------------------------------------------------------------------
   commits:
