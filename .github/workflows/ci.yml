@@ -20,6 +20,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Permite rodar o CI a mao, em qualquer branch, pela aba Actions ou por
+  #     gh workflow run CI --ref main
+  #
+  # Serve para dois casos reais:
+  #  - o GitHub as vezes perde o evento e o run nao dispara sozinho (aconteceu
+  #    na criacao deste repo); sem isso, a unica saida e um commit vazio;
+  #  - reverificar a main depois de mexer em cache, dependencia ou runner,
+  #    sem precisar inventar um commit.
+  workflow_dispatch:
 
 # Se um novo commit chegar no mesmo PR, cancela a execucao anterior.
 # Economiza minutos de runner e evita resultado de codigo desatualizado.
