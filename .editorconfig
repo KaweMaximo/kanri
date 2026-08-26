@@ -1,0 +1,28 @@
+# Mantém a formatação consistente entre editores.
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.{c,cpp,h,hpp}]
+indent_size = 2
+max_line_length = 80
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+# Em Markdown, dois espaços no fim da linha significam quebra de linha.
+trim_trailing_whitespace = false
+
+[*.ini]
+indent_size = 4
+
+[Makefile]
+indent_style = tab

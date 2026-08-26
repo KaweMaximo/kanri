@@ -1,0 +1,10 @@
+{
+  "name": "kanri_display",
+  "version": "0.1.0",
+  "description": "Abstracao de display do Kanri: view model puro e porta IDisplay. Drivers concretos ficam em src/hal.",
+  "keywords": ["kanri", "display", "ui"],
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": { "kanri_core": "*" },
+  "build": { "libArchive": true }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "kanri_config",
+  "version": "0.1.0",
+  "description": "Configuracoes persistentes do Kanri: struct, defaults e validacao. Pura; o backend NVS fica em src/hal.",
+  "keywords": ["kanri", "config", "nvs"],
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "libArchive": true }
+}

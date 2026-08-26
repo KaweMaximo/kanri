@@ -1,0 +1,75 @@
+# ============================================================================
+#  .gitignore — Kanri (projeto PlatformIO)
+# ============================================================================
+
+# --- PlatformIO -------------------------------------------------------------
+# Artefatos de build e dependências baixadas. Nada disso vai para o Git:
+# é gerado a partir do platformio.ini, que SIM é versionado.
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+
+# --- VS Code ----------------------------------------------------------------
+# O PlatformIO regenera estes arquivos com caminhos absolutos da máquina
+# local — versionar quebraria o projeto para outra pessoa.
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch/
+.vscode/settings.json
+
+# Estes DEVEM ser versionados (recomendações de extensão para o time):
+!.vscode/extensions.json
+
+# --- Outras IDEs ------------------------------------------------------------
+.idea/
+*.iml
+cmake-build-*/
+CMakeLists.txt
+CMakeListsPrivate.txt
+
+# --- Índices de ferramenta de código ---------------------------------------
+compile_commands.json
+.cache/
+.clangd/
+.ccls-cache/
+
+# --- Python (scripts auxiliares, venv local) -------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# --- Binários e artefatos ---------------------------------------------------
+*.bin
+*.elf
+*.hex
+*.map
+*.o
+*.a
+*.so
+*.out
+
+# --- Sistema operacional ----------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+*~
+*.swp
+*.swo
+
+# --- Segredos ---------------------------------------------------------------
+# Nunca commite credenciais. Se algum dia o projeto precisar de MAC do
+# adaptador, senha de Wi-Fi ou chave de API, use um arquivo destes.
+.env
+.env.*
+!.env.example
+secrets.h
+credentials.h

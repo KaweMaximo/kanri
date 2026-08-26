@@ -1,0 +1,12 @@
+# Normaliza fim de linha: evita diffs cheios de ruído entre Linux e Windows.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.bin binary
+*.elf binary
+*.hex binary
+*.pdf binary
+
+# Marca arquivos de documentação para as estatísticas de linguagem do GitHub
+*.md linguist-documentation

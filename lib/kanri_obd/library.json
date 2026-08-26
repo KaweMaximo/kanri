@@ -1,0 +1,10 @@
+{
+  "name": "kanri_obd",
+  "version": "0.1.0",
+  "description": "Protocolo ELM327 e OBD2 read-only. Parser, allowlist de comandos e cliente. Codigo puro, testavel no PC.",
+  "keywords": ["kanri", "obd2", "elm327", "read-only"],
+  "frameworks": "*",
+  "platforms": "*",
+  "dependencies": { "kanri_core": "*" },
+  "build": { "libArchive": true }
+}

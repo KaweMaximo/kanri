@@ -1,0 +1,17 @@
+# Estilo Google, com 80 colunas — o mesmo usado no código deste repositório.
+#
+# Para formatar antes de commitar:
+#     clang-format -i $(git ls-files '*.cpp' '*.h')
+#
+# Instalar:  pip install clang-format
+---
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 80
+IndentWidth: 2
+AccessModifierOffset: -1
+AllowShortFunctionsOnASingleLine: Inline
+DerivePointerAlignment: false
+PointerAlignment: Left
+IncludeBlocks: Regroup
+SortIncludes: true

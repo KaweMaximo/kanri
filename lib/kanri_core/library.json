@@ -1,0 +1,9 @@
+{
+  "name": "kanri_core",
+  "version": "0.1.0",
+  "description": "Contratos base e maquina de estados do Kanri. Codigo 100% puro: nao inclui Arduino.h, compila no PC e no ESP32.",
+  "keywords": ["kanri", "state-machine", "core"],
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "libArchive": true }
+}

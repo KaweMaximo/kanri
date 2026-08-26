@@ -1,0 +1,59 @@
+#!/bin/sh
+# ============================================================================
+#  Hook de commit-msg — valida Conventional Commits ANTES do commit existir
+# ============================================================================
+#  Pega o erro na sua máquina, em vez de descobrir no CI dez minutos depois.
+#
+#  Para ativar (uma vez, por clone):
+#      git config core.hooksPath .githooks
+#
+#  Para pular em um commit específico (evite):
+#      git commit --no-verify
+# ============================================================================
+
+MSG_FILE="$1"
+SUBJECT=$(head -n 1 "$MSG_FILE")
+
+# Commits de merge e revert são gerados pelo Git; não seguem o padrão.
+case "$SUBJECT" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*) exit 0 ;;
+esac
+
+PATTERN='^(feat|fix|docs|test|refactor|chore|perf|build|ci|style|revert)(\([a-z0-9._-]+\))?!?: .{1,}'
+
+if printf '%s' "$SUBJECT" | grep -qE "$PATTERN"; then
+  exit 0
+fi
+
+cat >&2 <<'HELP'
+
+  ✗ Mensagem de commit fora do padrao Conventional Commits.
+
+  Formato:
+      <tipo>(<escopo opcional>): <descricao no imperativo, minuscula>
+
+  Tipos:
+      feat      funcionalidade nova
+      fix       correcao de bug
+      docs      somente documentacao
+      test      somente testes
+      refactor  reorganizacao sem mudar comportamento
+      chore     manutencao (deps, arquivos de apoio)
+      perf      melhoria de desempenho
+      build     sistema de build
+      ci        integracao continua
+      style     formatacao, sem mudanca de logica
+      revert    reverte um commit anterior
+
+  Escopos deste projeto:
+      obd  display  config  core  hal  test  ci  docs
+
+  Exemplos:
+      feat(obd): adiciona decodificacao do PID 0x0C (rotacao)
+      fix(core): corrige estouro de inteiro no backoff
+      docs(safety): explica por que ATSH e bloqueado
+
+  Ver CLAUDE.md, secao Git.
+
+HELP
+exit 1

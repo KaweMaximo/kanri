@@ -1,0 +1,146 @@
+# ============================================================================
+#  CI do Kanri — roda em todo push na main e em todo Pull Request
+# ============================================================================
+#  Três jobs independentes, em paralelo:
+#    1. testes   -> pio test -e native  (a lógica pura, no runner Linux)
+#    2. firmware -> pio run -e esp32dev (compila de verdade para o ESP32)
+#    3. commits  -> valida Conventional Commits nos commits do PR
+#
+#  A regra do projeto: merge na main SÓ com os três verdes.
+#  Isso é configurado no GitHub (Settings > Branches > Branch protection),
+#  não aqui — ver CONTRIBUTING.md.
+# ============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Se um novo commit chegar no mesmo PR, cancela a execução anterior.
+# Economiza minutos de runner e evita resultado de código já desatualizado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  #  Testes unitários — o job mais importante. Roda a lógica pura no runner,
+  #  sem ESP32. É rápido (~segundos), então dá retorno quase imediato no PR.
+  # --------------------------------------------------------------------------
+  testes:
+    name: Testes unitários (native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Cache do PlatformIO: sem isso, cada execução rebaixa as dependências.
+      # A chave inclui o hash do platformio.ini — se ele mudar, cache novo.
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Rodar testes
+        run: pio test -e native -v
+
+  # --------------------------------------------------------------------------
+  #  Build do firmware — garante que o código realmente compila para o
+  #  hardware alvo. Testes passando não provam isso: a lógica compila com g++,
+  #  o firmware compila com xtensa-esp32-elf-gcc.
+  # --------------------------------------------------------------------------
+  firmware:
+    name: Build do firmware (esp32dev)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-esp32-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-esp32-
+
+      - name: Instalar PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Compilar
+        run: pio run -e esp32dev
+
+      # Uso de flash e RAM impresso no log do CI. Vale acompanhar: em firmware,
+      # ficar sem flash é um problema real, e o crescimento é gradual até que
+      # um dia não cabe mais.
+      - name: Uso de memória
+        run: pio run -e esp32dev -t size
+
+  # --------------------------------------------------------------------------
+  #  Conventional Commits — valida as mensagens dos commits do PR.
+  #
+  #  Por que isso importa: mensagem padronizada permite gerar CHANGELOG
+  #  automaticamente e deixa `git log` legível meses depois.
+  # --------------------------------------------------------------------------
+  commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # precisamos do histórico para comparar as branches
+
+      - name: Validar mensagens dos commits
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          PATTERN='^(feat|fix|docs|test|refactor|chore|perf|build|ci|style|revert)(\([a-z0-9._-]+\))?!?: .{1,}'
+          FAILED=0
+
+          # %s = subject (primeira linha) de cada commit do PR
+          while IFS= read -r subject; do
+            [ -z "$subject" ] && continue
+            # Commits de merge são gerados pelo Git, não seguem o padrão.
+            case "$subject" in "Merge "*) continue ;; esac
+
+            if printf '%s' "$subject" | grep -qE "$PATTERN"; then
+              echo "  ok   $subject"
+            else
+              echo "  ERRO $subject"
+              FAILED=1
+            fi
+          done < <(git log --format=%s "$BASE..$HEAD")
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo ""
+            echo "Mensagem de commit fora do padrao Conventional Commits."
+            echo "Formato: <tipo>(<escopo>): <descricao>"
+            echo "Exemplo: feat(obd): adiciona decodificacao do PID 0x0C"
+            echo ""
+            echo "Tipos aceitos: feat fix docs test refactor chore perf build ci style revert"
+            echo "Ver CLAUDE.md secao Git."
+            exit 1
+          fi
