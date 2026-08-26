@@ -15,6 +15,9 @@ Firmware ESP32 que lê telemetria de um **Mitsubishi Lancer 2.0 2014 (motor
 4B11)** por um adaptador OBD2 ELM327 Bluetooth, e mostra num display.
 
 Stack: **PlatformIO + framework Arduino + C++17**.
+Adaptador confirmado: **ELM327 Placa Dupla VS1.5 (PIC18F25K80), Bluetooth
+Classic** — clone dos bons, e por isso **capaz de escrever na ECU**. A única
+coisa que impede isso é a allowlist deste firmware.
 
 ---
 
@@ -139,15 +142,32 @@ padrão: eles são a documentação de verdade.
 
 ## Testes
 
-### Regra
+### 🔴 Regra, e ela é cobrada pela máquina
 
-Toda lógica em `lib/` tem teste. Sem exceção. Adaptador em `src/hal/` não
-precisa — ele deve ser burro o suficiente para não ter o que dar errado.
+**Todo código novo em `lib/` chega com teste. Sem exceção.**
+
+Isso não depende de disciplina — o CI cobra de três formas independentes:
+
+1. **`pio test -e native`** tem de passar (122 casos, com `-Werror`)
+2. **Cobertura de linhas em `lib/` tem de ser 100%.** Uma linha nova sem teste
+   que a execute deixa o CI vermelho.
+3. **PR que mexe em `lib/` sem mexer em `test/` é bloqueado.** Válvula de
+   escape: label `sem-teste-necessario`, que fica visível na revisão.
+
+Adaptador em `src/hal/` não precisa de teste — deve ser burro o suficiente
+para não ter o que dar errado. Se um adaptador precisa de teste, ele tem
+lógica demais: mova a lógica para `lib/`.
+
+**Política completa em [docs/TESTING.md](docs/TESTING.md). Leia antes de
+escrever teste neste projeto.**
 
 ```bash
-pio test -e native                          # tudo
+pio test -e native                          # tudo (122 casos, ~2 s)
 pio test -e native -f test_safety_guard     # uma suíte
 pio test -e native -v                        # mostra cada asserção
+
+pio test -e native_coverage                 # instrumentado
+gcovr --root . --filter 'lib/.*' --exclude '.*\.h$' --print-summary
 ```
 
 ### Como escrever um teste aqui
@@ -191,13 +211,22 @@ void test_todos_os_outros_254_modos_sao_bloqueados(void) {
 }
 ```
 
-Já existem exemplos de:
-- **varredura exaustiva** — todos os 256 modos; todas as combinações estado × evento
-- **fuzz determinístico** — 5.000 entradas pseudoaleatórias, semente fixa
-- **corrupção simulada** — flash com todos os bits em 1, tudo zerado, ruído
+Já existem quatro padrões no repo:
+
+| Padrão | Onde ver | O que pega |
+|---|---|---|
+| **Varredura exaustiva** | `test_safety_guard` (256 modos), `test_state_machine` (estado × evento) | Caso esquecido numa allowlist ou tabela |
+| **Fuzz determinístico** | `test_elm327_parser` (5.000 entradas) | Leitura fora do buffer, travamento |
+| **Corrupção simulada** | `test_settings` (flash 0xFF, 0x00, ruído) | Firmware que não liga com dado corrompido |
+| **Verificação de silêncio** | `test_obd_client` (pedido proibido não escreve **um byte**) | Verificação de segurança decorativa |
 
 Semente fixa é essencial: teste aleatório de verdade falha em dias diferentes
 e ninguém confia nele.
+
+**Enum corrompido é testável.** Todos os `enum class` do projeto têm base
+`uint8_t`, então os 256 valores são representáveis e `static_cast<AppState>(99)`
+é C++ legal — não é UB. Use isso para testar o caminho defensivo de verdade,
+em vez de só confiar nele.
 
 ---
 
@@ -270,10 +299,13 @@ pio test -e native      # tem que estar verde
 pio run -e esp32dev     # tem que compilar
 ```
 
-Depois passe pela [checklist de segurança](docs/SAFETY.md#6-antes-de-abrir-um-pull-request).
+Depois passe pelas duas checklists:
+- [segurança](docs/SAFETY.md#6-antes-de-abrir-um-pull-request)
+- [testes](docs/TESTING.md#checklist-antes-do-pr)
 
-O CI (`.github/workflows/ci.yml`) roda build + testes em todo PR. **Merge só
-com CI verde.**
+O CI roda **cinco** jobs em todo PR: testes, cobertura (100% de linhas),
+política de testes, build do firmware e Conventional Commits. **Merge só com
+os cinco verdes.**
 
 ---
 
@@ -291,5 +323,7 @@ com CI verde.**
   `pio test -e native` e mostre a saída.
 - **Ao adicionar um módulo:** interface em `lib/`, adaptador em `src/hal/`,
   dublê em `test/helpers/`, testes de invariante em `test/`.
+- **Nunca entregue lógica em `lib/` sem teste.** O CI vai barrar, e é o
+  comportamento correto. Ver [docs/TESTING.md](docs/TESTING.md).
 - **Estado atual:** v0.1.0, fundação pronta e testada; Bluetooth, leitura de
   PIDs e display ainda não existem. Ver [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -1,7 +1,11 @@
 # `test/` — os testes do Kanri
 
+> **Política obrigatória: [docs/TESTING.md](../docs/TESTING.md).**
+> Código novo em `lib/` chega com teste — o CI exige 100% de cobertura de
+> linhas e bloqueia PR que mexa em `lib/` sem mexer em `test/`.
+
 ```bash
-pio test -e native                          # tudo (~1,4 s)
+pio test -e native                          # tudo (122 casos, ~2 s)
 pio test -e native -f test_safety_guard     # uma suíte só
 pio test -e native -v                        # mostra cada asserção
 ```
@@ -14,11 +18,13 @@ lógica de `lib/` com o `g++` do seu PC e linka com o framework de teste
 
 | Suíte | Casos | O que garante |
 |-------|-------|---------------|
-| `test_elm327_parser/` | 31 | Que nenhuma resposta malformada do adaptador seja tratada como dado válido |
-| `test_safety_guard/` | 18 | **Que o firmware não consiga escrever na ECU.** Ver [SAFETY.md](../docs/SAFETY.md) |
-| `test_state_machine/` | 19 | Que nenhum caminho de falha reinicie o firmware |
-| `test_settings/` | 21 | Que configuração corrompida na flash não impeça o boot |
+| `test_elm327_parser/` | 33 | Que nenhuma resposta malformada do adaptador seja tratada como dado válido |
+| `test_settings/` | 24 | Que configuração corrompida na flash não impeça o boot |
+| `test_state_machine/` | 22 | Que nenhum caminho de falha reinicie o firmware |
+| `test_safety_guard/` | 20 | **Que o firmware não consiga escrever na ECU.** Ver [SAFETY.md](../docs/SAFETY.md) |
+| `test_obd_client/` | 14 | Que um pedido proibido não escreva **um único byte** no transporte — e que os próprios dublês sejam confiáveis |
 | `test_display/` | 9 | Que a tela não exiba número em que não confiamos |
+| **Total** | **122** | Cobertura: **100%** das linhas de `lib/` |
 
 ## `helpers/` — os dublês
 
@@ -80,6 +86,9 @@ Já existem exemplos de:
   modo/PID errado)
 - **corrupção simulada** — configuração com todos os bits em 1 (flash
   apagada), tudo zerado, e 500 amostras de ruído
+- **verificação de silêncio** — o `FakeTransport` prova que um pedido proibido
+  não gera byte algum; é o que separa uma verificação de segurança real de uma
+  decorativa
 
 **Semente sempre fixa.** Teste aleatório de verdade falha em dias diferentes,
 e ninguém confia num teste que falha sozinho.
