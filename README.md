@@ -130,11 +130,17 @@ puro, você reescreve os quatro arquivos de `src/hal/` — não o projeto.
 
 ### 1. Instalar o PlatformIO
 
+> ⚠️ `pip install platformio` **não funciona** no Ubuntu 24.04+ / Debian 12+
+> (PEP 668 — o Python do sistema é *externally managed*).
+
 ```bash
-pip install platformio
+# Opção mais idiomática (precisa de sudo uma vez)
+sudo apt install pipx && pipx ensurepath
+pipx install platformio gcovr
 ```
 
-Ou instale a extensão **PlatformIO IDE** no VS Code.
+Sem `sudo`, ou para outras opções, veja
+**[CONTRIBUTING.md](CONTRIBUTING.md#instalando-o-platformio)**.
 
 ### 2. Rodar os testes (não precisa de hardware)
 
@@ -239,9 +245,11 @@ git push -u origin feat/nome-da-coisa
 gh pr create
 ```
 
-- `main` é protegida: só recebe merge via PR com CI verde
+- `main` é protegida: só recebe merge via PR com os **6 checks** verdes
 - Commits seguem [Conventional Commits](https://www.conventionalcommits.org/pt-br/)
-- Versionamento [SemVer](https://semver.org/lang/pt-BR/), registrado no [CHANGELOG.md](CHANGELOG.md)
+- Código novo em `lib/` chega com teste — cobrado por cobertura de 100% das linhas
+- Mudança de código ou infra atualiza o [CHANGELOG.md](CHANGELOG.md) — também cobrado
+- Versionamento [SemVer](https://semver.org/lang/pt-BR/)
 
 ---
 

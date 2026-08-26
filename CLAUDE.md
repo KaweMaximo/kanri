@@ -280,6 +280,29 @@ Há um hook de `commit-msg` no repositório que valida isso. Ative com:
 git config core.hooksPath .githooks
 ```
 
+### CHANGELOG — sempre, no mesmo PR
+
+**Toda mudança de código ou de infra registra o que mudou no `CHANGELOG.md`.**
+Cobrado pelo job de CI `CHANGELOG atualizado`. Dispensa: label `sem-changelog`.
+
+Enquanto não foi lançada, a entrada vive em `## [Não lançado]`. Seções do
+[Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/): `Adicionado`,
+`Modificado`, `Descontinuado`, `Removido`, `Corrigido`, `Segurança`.
+
+Escreva para **quem vai ler daqui a seis meses**, não para o `git log`:
+
+```markdown
+# ❌ repete o commit
+- altera obd_client.cpp
+
+# ✅ diz o que mudou para quem usa
+- Corrigido: resposta atrasada de um PID anterior não é mais exibida como a
+  medida atual (o parser agora confere o eco de modo e PID)
+```
+
+Por que cobrar isso: um changelog lembrado só na hora do release já nasceu
+incompleto. O momento em que se sabe o que mudou é o momento do PR.
+
 ### Versionamento
 
 [SemVer](https://semver.org/lang/pt-BR/): `MAIOR.MENOR.CORREÇÃO`.
@@ -303,9 +326,9 @@ Depois passe pelas duas checklists:
 - [segurança](docs/SAFETY.md#6-antes-de-abrir-um-pull-request)
 - [testes](docs/TESTING.md#checklist-antes-do-pr)
 
-O CI roda **cinco** jobs em todo PR: testes, cobertura (100% de linhas),
-política de testes, build do firmware e Conventional Commits. **Merge só com
-os cinco verdes.**
+O CI roda **seis** jobs em todo PR: testes, cobertura (100% de linhas),
+política de testes, CHANGELOG atualizado, build do firmware e Conventional
+Commits. **Merge só com os seis verdes.**
 
 ---
 
@@ -325,5 +348,7 @@ os cinco verdes.**
   dublê em `test/helpers/`, testes de invariante em `test/`.
 - **Nunca entregue lógica em `lib/` sem teste.** O CI vai barrar, e é o
   comportamento correto. Ver [docs/TESTING.md](docs/TESTING.md).
+- **Nunca entregue mudança de código sem entrada no CHANGELOG.** O CI também
+  barra. Kawe pediu isso explicitamente: "é importante sempre ter".
 - **Estado atual:** v0.1.0, fundação pronta e testada; Bluetooth, leitura de
   PIDs e display ainda não existem. Ver [docs/ROADMAP.md](docs/ROADMAP.md).

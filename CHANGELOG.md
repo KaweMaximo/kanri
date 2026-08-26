@@ -7,7 +7,26 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
-Nada ainda. Próxima versão: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP.md#-v020--conexão-e-leitura-de-pids).
+Próxima versão planejada: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP.md#-v020--conexão-e-leitura-de-pids).
+
+### Adicionado
+- O CI pode ser disparado à mão (`workflow_dispatch`), por exemplo com
+  `gh workflow run CI --ref main`. Necessário porque o GitHub perdeu dois
+  eventos de Actions na criação do repositório, e sem isso a única forma de
+  reverificar uma branch seria empurrar um commit vazio.
+- Job de CI **`CHANGELOG atualizado`**: PR que altera código ou infra sem
+  atualizar o `CHANGELOG.md` é bloqueado. Dispensa explícita pela label
+  `sem-changelog`.
+- `CONTRIBUTING.md` ganhou a seção "O CHANGELOG", com as seções do Keep a
+  Changelog e exemplos de entrada boa e ruim.
+
+### Corrigido
+- **Instruções de instalação do PlatformIO.** O repositório mandava rodar
+  `pip install platformio`, que **falha** no Ubuntu 24.04+ e Debian 12+: essas
+  distribuições marcam o Python do sistema como *externally managed*
+  (PEP 668) e recusam instalação global. Documentadas três alternativas que
+  funcionam — `pipx`, venv dedicado com symlinks (sem `sudo`) e a extensão do
+  VS Code — além do que evitar (`--break-system-packages`, `sudo pip`).
 
 ---
 

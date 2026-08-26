@@ -36,7 +36,11 @@ O primeiro dado real vindo do carro.
 
 ### Bluetooth
 - [ ] `src/hal/bt_serial_transport.h/.cpp` — Bluetooth Classic SPP
-- [ ] Varredura procurando `adapter_name` ou `adapter_mac`
+- [ ] Varredura procurando pelo **nome** (`adapter_name`, tipicamente `OBDII`)
+      — este é o fluxo padrão, e o que vamos implementar primeiro
+- [ ] Conexão direta por `adapter_mac` como **otimização opcional**: pula a
+      varredura e conecta mais rápido. Só faz sentido depois que o caminho por
+      nome estiver funcionando
 - [ ] Pareamento com PIN, com tratamento de timeout
 - [ ] Reconexão automática usando a `RetryPolicy` que já existe
 - [ ] `board_build.partitions = huge_app.csv` no `platformio.ini`
