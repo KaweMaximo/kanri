@@ -172,6 +172,37 @@ void test_clamp_forca_terminador_em_string_corrompida(void) {
   assert_error(SettingsError::None, validate(settings));
 }
 
+// Sem nome e sem MAC nao ha como localizar o adaptador. O clamp restaura o
+// nome padrao em vez de deixar o firmware sem alvo nenhum.
+void test_clamp_restaura_o_nome_quando_nome_e_mac_estao_vazios(void) {
+  KanriSettings settings = default_settings();
+  settings.adapter_name[0] = '\0';
+  settings.adapter_mac[0] = '\0';
+
+  TEST_ASSERT_TRUE(clamp_to_valid(settings));
+  assert_error(SettingsError::None, validate(settings));
+  TEST_ASSERT_EQUAL_STRING("OBDII", settings.adapter_name);
+}
+
+// Pior caso combinado: MAC corrompido E nome vazio. Descartar o MAC deixaria
+// o firmware sem nenhuma forma de achar o adaptador — entao o nome tambem
+// tem de ser restaurado.
+void test_clamp_lida_com_mac_ruim_e_nome_vazio_ao_mesmo_tempo(void) {
+  KanriSettings settings = default_settings();
+  settings.adapter_name[0] = '\0';
+  std::memcpy(settings.adapter_mac, "NAO::EH::UM::MAC\0", 17);
+
+  TEST_ASSERT_TRUE(clamp_to_valid(settings));
+  assert_error(SettingsError::None, validate(settings));
+  TEST_ASSERT_EQUAL_STRING("", settings.adapter_mac);
+  TEST_ASSERT_EQUAL_STRING("OBDII", settings.adapter_name);
+}
+
+void test_erro_corrompido_tem_nome_utilizavel(void) {
+  const SettingsError corrupted = static_cast<SettingsError>(180);
+  TEST_ASSERT_EQUAL_STRING("Unknown", kanri::config::to_string(corrupted));
+}
+
 // A INVARIANTE MAIS IMPORTANTE DESTE MODULO: nao importa o lixo que venha da
 // flash, depois de clamp_to_valid() a configuracao E valida. E essa garantia
 // que permite ao firmware sempre inicializar.
@@ -281,6 +312,9 @@ int main() {
   RUN_TEST(test_clamp_reseta_tudo_quando_o_esquema_nao_bate);
   RUN_TEST(test_clamp_descarta_mac_invalido_e_mantem_a_busca_por_nome);
   RUN_TEST(test_clamp_forca_terminador_em_string_corrompida);
+  RUN_TEST(test_clamp_restaura_o_nome_quando_nome_e_mac_estao_vazios);
+  RUN_TEST(test_clamp_lida_com_mac_ruim_e_nome_vazio_ao_mesmo_tempo);
+  RUN_TEST(test_erro_corrompido_tem_nome_utilizavel);
   RUN_TEST(test_clamp_sempre_produz_configuracao_valida);
   RUN_TEST(test_to_string_nunca_devolve_nulo);
 
