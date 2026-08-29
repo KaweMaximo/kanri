@@ -10,6 +10,39 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 Próxima versão planejada: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP.md#-v020--conexão-e-leitura-de-pids).
 
 ### Adicionado
+- **Kanri Console** (`./start.sh`) — painel web local de desenvolvimento, em
+  `tools/kanri-console/`. Mostra o estado da máquina de estados do firmware ao
+  vivo (extraído dos logs seriais), o log com carimbo de tempo, e oferece
+  botões para gravar firmware, reiniciar a placa, compilar, rodar os testes e
+  detectar o chip.
+
+  Detalhe que faz funcionar: a porta serial é exclusiva de um processo. Ao
+  gravar, o painel fecha a serial, roda o `pio` transmitindo a saída, e
+  reabre — sem isso o upload falharia com *"could not open port"*.
+
+  Escuta **apenas em `127.0.0.1`**: o painel executa comandos na máquina, e
+  expor isso na rede sem autenticação deixaria qualquer um no mesmo Wi-Fi
+  gravar firmware no ESP32.
+
+  Sem dependência nova de execução: usa a biblioteca padrão do Python mais o
+  `pyserial` que já vem com o PlatformIO. Logs em tempo real via Server-Sent
+  Events.
+
+  Interface com Tailwind CSS **vendorizado** (`vendor/tailwind.js`), não via
+  CDN: a ferramenta precisa funcionar offline, que é exatamente onde o ESP32
+  vai estar — garagem, carro. Ícones são SVG inline (Lucide, ISC), pelo mesmo
+  motivo. Layout de tela cheia, sem rolagem de página: a rolagem acontece
+  dentro do log.
+
+  O log classifica cada linha (`estado`, `retry`, `sistema`, `serial`,
+  `display`, `cmd`) e permite filtrar por categoria. A moldura ASCII que o
+  `SerialDisplay` redesenha a cada 500 ms vem **desligada por padrão** — sem
+  isso ela afoga o log. Linhas idênticas consecutivas são agrupadas com um
+  contador `×N`.
+- `start.sh` na raiz: encontra sozinho um Python que tenha `pyserial` (não é
+  óbvio no Ubuntu 24.04+, onde ele costuma existir só dentro do venv do
+  PlatformIO) e explica como instalar quando não encontra.
+- O job `CHANGELOG atualizado` passa a cobrir também `tools/**` e `start.sh`.
 - O CI pode ser disparado à mão (`workflow_dispatch`), por exemplo com
   `gh workflow run CI --ref main`. Necessário porque o GitHub perdeu dois
   eventos de Actions na criação do repositório, e sem isso a única forma de

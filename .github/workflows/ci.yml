@@ -247,8 +247,9 @@ jobs:
           set -euo pipefail
 
           MUDOU_CODIGO=$(git diff --name-only "$BASE" "$HEAD" \
-                          -- 'lib/**' 'src/**' 'test/**' \
-                             'platformio.ini' '.github/workflows/**' | wc -l)
+                          -- 'lib/**' 'src/**' 'test/**' 'tools/**' \
+                             'platformio.ini' 'start.sh' \
+                             '.github/workflows/**' | wc -l)
           MUDOU_CHANGELOG=$(git diff --name-only "$BASE" "$HEAD" \
                           -- 'CHANGELOG.md' | wc -l)
 
