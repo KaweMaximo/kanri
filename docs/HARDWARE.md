@@ -314,6 +314,68 @@ Nenhum destes é opcional numa instalação permanente:
   analógica (medir a tensão da bateria por divisor resistivo); não serviria
   para o botão.
 
+### De onde tirar o 5 V do MAX7219
+
+A ideia de aproveitar a mesma alimentação da placa está certa — mas **qual dos
+dois pinos** muda o resultado por completo.
+
+| Origem | Funciona? | Por quê |
+|---|---|---|
+| Pino **3,3 V** da DevKit | ❌ **Não** | Dois impedimentos independentes, abaixo |
+| Pino **5 V / VIN** | ✅ **Sim** | É o trilho do próprio conversor buck |
+
+#### Por que o 3,3 V não serve
+
+**1. Está abaixo do mínimo do chip.** O `V+` do MAX7219 é especificado de
+**4,0 V a 5,5 V**. Em 3,3 V ele fica fora de faixa: o display perde brilho
+justamente onde mais precisa (sol direto no painel), e o oscilador interno
+passa a operar sem garantia.
+
+**2. O regulador da placa não dá conta.** Com `ISET` de 10 kΩ:
+
+```
+corrente por segmento ............  37 mA
+pico (um dígito, 8 segmentos) ... 296 mA
+ESP32 em pico de rádio .......... 500 mA
+──────────────────────────────────────────
+pico somado ..................... 796 mA
+```
+
+O AMS1117 da DevKit é anunciado para 800 mA, mas o limite real é **térmico**:
+a 500 mA ele já dissipa 0,85 W num encapsulamento SOT-223 sem dissipador, e a
+796 mA seriam **1,36 W**. Ele entraria em proteção térmica — e o sintoma seria
+o ESP32 reiniciando quando o display acende, algo que parece bug de firmware e
+não é.
+
+#### O caminho certo
+
+```
+        LM2596HV (buck)
+              │
+              ├──► 5 V ──┬──► pino 5V/VIN da DevKit ──► AMS1117 ──► ESP32 (3,3 V)
+              │          │
+              │          ├──► V+ do MAX7219
+              │          │
+              │          └──► VCC do 74HCT125
+              │
+             GND (comum a tudo)
+```
+
+Continua sendo **um trilho só, do mesmo conversor** — que é o que você queria.
+A diferença é que o display puxa sua corrente direto do buck (dimensionado
+para ≥ 1 A), e não através do reguladorzinho da placa.
+
+O `74HCT125` entra alimentado nesse mesmo 5 V, e é ele que eleva os 3,3 V do
+ESP32 ao nível que o MAX7219 exige. Sem ele, os dois problemas — corrente e
+nível lógico — não se resolvem juntos: baixar para 3,3 V conserta o nível
+lógico e quebra a alimentação; subir para 5 V conserta a alimentação e quebra
+o nível lógico.
+
+> **O capacitor não é opcional aqui.** Aquele pico de 296 mA aparece e some a
+> cada varredura de dígito. Quem o supre é o par 10 µF + 100 nF junto ao `V+`
+> do MAX7219 — sem ele, o pico vira queda de tensão no trilho, e essa queda
+> chega ao ESP32.
+
 ### Pinos SPI sugeridos
 
 O esquema não fixa quais GPIOs. Usando o VSPI padrão do ESP32:
