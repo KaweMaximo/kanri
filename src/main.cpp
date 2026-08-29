@@ -391,8 +391,25 @@ void render_if_due() {
     return;
   }
   g_last_render_ms = now;
-  g_display.render(kanri::display::build_frame(g_telemetry, g_state,
-                                               g_settings.use_metric_units != 0));
+
+  kanri::display::ViewContext ctx;
+  ctx.state = g_state;
+  ctx.telemetry = &g_telemetry;
+  ctx.now_ms = now;
+  ctx.metric_units = g_settings.use_metric_units != 0;
+  ctx.adapter_name = g_settings.adapter_name;
+  ctx.retry_attempt = g_retry.attempt_count();
+
+  // Quanto falta para a proxima tentativa. A tela mostra isso em segundos,
+  // para o usuario saber que o aparelho esta esperando, e nao travado.
+  if (kanri::core::waits_for_retry(g_state)) {
+    const std::uint32_t esperou =
+        kanri::core::elapsed_ms(now, g_degraded_since_ms);
+    ctx.retry_in_ms =
+        (esperou < g_retry_delay_ms) ? (g_retry_delay_ms - esperou) : 0;
+  }
+
+  g_display.render(kanri::display::build_frame(ctx));
 }
 
 }  // namespace

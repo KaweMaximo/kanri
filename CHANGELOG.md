@@ -8,6 +8,30 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Dashboard de verdade** (v0.3 parcial). `build_frame()` deixa de ser
+  esqueleto e monta quatro telas: **Splash** (nome e versão), **Connecting**
+  (etapa atual e — importante — *quem* estamos procurando, porque nome
+  configurado errado é o erro mais comum na primeira instalação),
+  **Dashboard** (rotação, temperatura, velocidade, tensão) e **Error** (o que
+  houve, qual tentativa, e **contagem regressiva** até a próxima).
+
+  Duas regras que valem tanto quanto os números:
+
+  - **Medida velha vira `--`.** Não basta o valor ser válido: acima de 3 s
+    ele deixa de ser "atual". Um valor de 10 s atrás exibido como agora
+    engana tanto quanto um valor inventado.
+  - **`--` aparece sem unidade.** `-- rpm` sugere uma medida que não existe.
+
+  E o alerta de motor quente (≥105 °C) **não dispara com dado velho** — seria
+  assustar por uma leitura que não vale mais.
+- **Formatação própria de números** (`kanri_display/text_format`), no lugar do
+  `snprintf`. Duas razões: o `snprintf` com float arrasta ~10 KB de flash, e
+  estas funções cabem em 40 linhas que dá para auditar — nunca escrevem além
+  do buffer, sempre terminam em nulo, não alocam.
+
+  O valor fica alinhado à direita de propósito: número que muda de largura
+  (999 → 1000) pulando na tela é difícil de ler de relance, que é como se lê
+  um painel dirigindo.
 - **Configuração em runtime pelo console serial.** O nome Bluetooth do
   adaptador ELM327 varia entre modelos (`OBDII`, `V-LINK`, `Android-Vlink`).
   Sem isso, descobrir que o seu se chama diferente exigiria recompilar e
@@ -93,7 +117,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   270 KB para 1,1 MB, que não cabe com folga na tabela padrão. Abre-se mão da
   partição de OTA, que não está no roadmap.
 
+### Removido
+- A sobrecarga `build_frame(telemetry, state, metric)` e o auxiliar
+  `connecting_label()`. A medição de cobertura mostrou que ambos eram **código
+  morto**: ninguém chamava a sobrecarga, e o `default:` do auxiliar era
+  inalcançável porque a função só era chamada de dentro dos casos que ela
+  tratava. Código que existe só para calar o compilador é dívida.
+
 ### Modificado
+- A largura da moldura do `SerialDisplay` passa a vir de `kFrameTextLen`, e
+  não de um número digitado. Estavam divergindo em um caractere, e os valores
+  alinhados à direita vazavam para fora da borda.
 - `contem_sem_caixa()` e `decode()` tinham cada um **duas defesas para o mesmo
   caso**. A medição de cobertura expôs a redundância: uma das duas nunca era
   alcançada. Ambas foram simplificadas para um único ponto de decisão — no
