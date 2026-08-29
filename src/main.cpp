@@ -605,6 +605,13 @@ void executar(const kanri::config::ParsedCommand& cmd) {
   if (kanri::config::apply_command(cmd, g_settings)) {
     Serial.printf("[cfg] %s aplicado (use 'save' para gravar)\n",
                   kanri::config::to_string(cmd.action));
+    // O brilho precisa chegar ao CHIP, nao so as configuracoes. Sem esta
+    // linha o comando responde "aplicado" e o mostrador nao muda nada — e o
+    // brilho e o controle de corrente do MAX7219, entao "nao muda nada" e
+    // exatamente o que nao se quer quando a fonte esta no limite.
+    if (cmd.action == kanri::config::CommandAction::SetBrightness) {
+      g_seg.set_brightness(g_settings.display_brightness);
+    }
     aplicar_tempos_do_obd();
     // O alvo da varredura muda na hora: assim da para corrigir o nome e ver
     // a proxima varredura ja procurando o certo, sem reiniciar.

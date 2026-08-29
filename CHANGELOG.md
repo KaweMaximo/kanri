@@ -82,6 +82,17 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   brilho.
 
 ### Corrigido
+- **O comando `brilho` não chegava ao MAX7219.** Ele alterava as configurações
+  e respondia *"aplicado"*, mas o `main.cpp` nunca repassava o valor ao chip —
+  o mostrador ficava nos 30 % iniciais para sempre.
+
+  Importa mais do que estética: no MAX7219 a intensidade é *duty cycle*, ou
+  seja, é o **controle de corrente**. Quando a fonte está no limite, "responde
+  que aplicou e não muda nada" é exatamente o que não se quer.
+
+  Mesma família do backoff preso no teto: o método existia e era testado, e a
+  cola no `main.cpp` esquecia de chamá-lo.
+
 - **O backoff de reconexão ficava preso no teto de 30 s para sempre.** O
   `main.cpp` nunca chamava `RetryPolicy::on_success()`, então o contador de
   tentativas só crescia durante toda a vida do aparelho.
