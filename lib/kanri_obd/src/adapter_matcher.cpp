@@ -33,6 +33,10 @@ char maiuscula(char c) {
 /// Exata de proposito: "contem" ou "prefixo" fariam "OBDII_FALSO" casar com
 /// "OBDII". Num estacionamento, isso e a diferenca entre conectar no
 /// adaptador do seu carro e no aparelho de outra pessoa.
+///
+/// PRE-CONDICAO: `a` tem terminador nulo dentro de `cap`. Quem chama garante
+/// isso com utilizavel(). `b` (o alvo configurado) pode nao ter — e por isso
+/// o laco respeita `cap` em vez de confiar no terminador.
 bool iguais_sem_caixa(const char* a, const char* b, std::size_t cap) {
   for (std::size_t i = 0; i < cap; ++i) {
     const char ca = maiuscula(a[i]);
@@ -40,7 +44,20 @@ bool iguais_sem_caixa(const char* a, const char* b, std::size_t cap) {
     if (ca != cb) return false;
     if (ca == '\0') return true;
   }
-  return false;  // nenhum dos dois terminou dentro do limite
+  // GCOVR_EXCL_START
+  // Inalcancavel pelo caminho publico, e mantido como rede de seguranca.
+  //
+  // Para chegar aqui, NENHUMA das duas strings poderia terminar dentro de
+  // `cap`. Mas select_adapter() so chama esta funcao depois de utilizavel(),
+  // que ja rejeitou qualquer dispositivo sem terminador — entao `a` sempre
+  // termina, e o laco sai por `return true` (iguais) ou `return false`
+  // (diferentes) antes do fim.
+  //
+  // Tentei alcancar por teste e nao ha entrada de select_adapter() que leve
+  // aqui. A linha fica porque a funcao e um utilitario: se algum dia alguem
+  // chama-la sem passar por utilizavel(), "diferentes" e a resposta segura.
+  return false;
+  // GCOVR_EXCL_STOP
 }
 
 bool vazio(const char* s) { return s == nullptr || s[0] == '\0'; }

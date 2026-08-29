@@ -25,6 +25,11 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   o único padrão que não pisca, reconhecível de relance.
 - `[boot] motivo do reset` no log: distinguir "liguei na tomada" de "o
   watchdog me reiniciou" é o que torna visível um bloqueio no loop.
+- Primeira exclusão `GCOVR_EXCL` do projeto, em `adapter_matcher.cpp`: o
+  retorno defensivo de `iguais_sem_caixa()` é inalcançável pelo caminho
+  público, porque `utilizavel()` já rejeitou dispositivos sem terminador antes
+  da comparação. A justificativa está escrita no código, como exige
+  [docs/TESTING.md](docs/TESTING.md).
 - `board_build.partitions = huge_app.csv`: a pilha Bluetooth leva o binário de
   270 KB para 1,1 MB, que não cabe com folga na tabela padrão. Abre-se mão da
   partição de OTA, que não está no roadmap.
