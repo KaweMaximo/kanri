@@ -24,8 +24,21 @@ Próxima versão planejada: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP
   expor isso na rede sem autenticação deixaria qualquer um no mesmo Wi-Fi
   gravar firmware no ESP32.
 
-  Sem dependência nova: usa a biblioteca padrão do Python mais o `pyserial`
-  que já vem com o PlatformIO. Logs em tempo real via Server-Sent Events.
+  Sem dependência nova de execução: usa a biblioteca padrão do Python mais o
+  `pyserial` que já vem com o PlatformIO. Logs em tempo real via Server-Sent
+  Events.
+
+  Interface com Tailwind CSS **vendorizado** (`vendor/tailwind.js`), não via
+  CDN: a ferramenta precisa funcionar offline, que é exatamente onde o ESP32
+  vai estar — garagem, carro. Ícones são SVG inline (Lucide, ISC), pelo mesmo
+  motivo. Layout de tela cheia, sem rolagem de página: a rolagem acontece
+  dentro do log.
+
+  O log classifica cada linha (`estado`, `retry`, `sistema`, `serial`,
+  `display`, `cmd`) e permite filtrar por categoria. A moldura ASCII que o
+  `SerialDisplay` redesenha a cada 500 ms vem **desligada por padrão** — sem
+  isso ela afoga o log. Linhas idênticas consecutivas são agrupadas com um
+  contador `×N`.
 - `start.sh` na raiz: encontra sozinho um Python que tenha `pyserial` (não é
   óbvio no Ubuntu 24.04+, onde ele costuma existir só dentro do venv do
   PlatformIO) e explica como instalar quando não encontra.

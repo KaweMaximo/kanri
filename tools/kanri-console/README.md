@@ -53,6 +53,30 @@ justamente porque o acesso é restrito à sua própria máquina.
 
 **Não mude o bind para `0.0.0.0`** sem colocar autenticação antes.
 
+## Por que o log filtra "display" por padrão
+
+O `SerialDisplay` do firmware redesenha a moldura da tela a cada 500 ms — são
+sete linhas ASCII por ciclo. Sem filtro, elas afogam as linhas que importam
+(`[estado]`, `[retry]`).
+
+O servidor classifica cada linha e o painel deixa a categoria `display`
+desligada por padrão. Ligue no chip `display` se quiser ver a tela como ela
+aparece no monitor serial. Linhas idênticas consecutivas também são agrupadas
+com um contador `×N`.
+
+## Backoff na reconexão da serial
+
+A porta serial é exclusiva de um processo. Se outro processo a abrir (um
+segundo painel, ou `pio device monitor`), o `pyserial` falha com
+*"device reports readiness to read but returned no data"*.
+
+O painel **não** reage a isso reconectando em laço apertado — isso gerava
+dezenas de mensagens por segundo e escondia o log útil. Ele recua
+progressivamente (0,25 s → 2 s) e não repete a mesma mensagem em sequência.
+
+É a mesma lição do `RetryPolicy` do firmware, e vale pelo mesmo motivo:
+insistir sem pausa transforma um problema em ruído.
+
 ## Requisitos
 
 - Python 3.9+

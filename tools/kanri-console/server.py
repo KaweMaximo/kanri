@@ -48,6 +48,29 @@ RE_VERSAO = re.compile(r"Kanri v(\S+)")
 
 MAX_HISTORICO = 500  # linhas guardadas para quem abrir o painel depois
 
+# Moldura da tela desenhada pelo SerialDisplay. Sao dezenas de linhas por
+# segundo e afogam o log — por isso viram uma categoria propria, que o painel
+# deixa desligada por padrao.
+RE_MOLDURA = re.compile(r"^\s*(\+-+\+|\|.*\|)\s*$")
+
+
+def classificar(texto: str) -> str:
+    """Rotula uma linha de log para que a interface possa filtrar.
+
+    A categoria e derivada aqui, no servidor, e nao no navegador: assim o
+    filtro funciona igual para quem abre o painel no meio da sessao e recebe
+    o historico ja rotulado.
+    """
+    if RE_MOLDURA.match(texto):
+        return "display"
+    if "[estado]" in texto:
+        return "estado"
+    if "[retry]" in texto:
+        return "retry"
+    if "[wdt]" in texto or "[config]" in texto:
+        return "sistema"
+    return "serial"
+
 
 def achar_porta() -> str | None:
     """Descobre a porta serial do ESP32.
@@ -112,7 +135,8 @@ class Hub:
                 self._assinantes.remove(q)
 
     def publicar(self, tipo: str, texto: str) -> None:
-        evento = {"tipo": tipo, "texto": texto, "t": time.time()}
+        cat = classificar(texto) if tipo == "serial" else tipo
+        evento = {"tipo": tipo, "cat": cat, "texto": texto, "t": time.time()}
         self._interpretar(tipo, texto)
         with self._trava:
             self._historico.append(evento)
@@ -166,6 +190,22 @@ class LeitorSerial(threading.Thread):
         self.pausado = threading.Event()
         self.conectado = False
         self._parar = threading.Event()
+        # Backoff de reconexao. Sem ele, um erro persistente vira laco
+        # apertado: fecha, reabre, falha, repete — dezenas de vezes por
+        # segundo, e o log util some no meio.
+        #
+        # O caso real que provocou isso: DOIS processos com a mesma porta
+        # aberta (o painel e um `pio device monitor`, por exemplo). A porta
+        # serial e exclusiva, e o pyserial reclama com
+        # "device reports readiness to read but returned no data".
+        # A disputa e legitima e vai acontecer; o que nao pode e o painel
+        # reagir a ela com um laco de reconexao.
+        #
+        # E a mesma licao do RetryPolicy do firmware — ver
+        # lib/kanri_core/include/kanri_core/retry_policy.h.
+        self._espera = 0.0
+        self._ultimo_erro = ""
+        self._avisou_aberta = False
 
     def pausar(self) -> None:
         """Solta a porta para que outro processo possa usa-la."""
@@ -177,6 +217,12 @@ class LeitorSerial(threading.Thread):
     def retomar(self) -> None:
         self.pausado.clear()
 
+    def _erro(self, msg: str) -> None:
+        """Publica um erro, sem repetir a mesma mensagem em sequencia."""
+        if msg != self._ultimo_erro:
+            self.hub.publicar("erro", msg)
+            self._ultimo_erro = msg
+
     def resetar_placa(self) -> bool:
         """Pulso DTR/RTS — o mesmo reset do botao EN da placa."""
         if self.ser is None:
@@ -186,6 +232,9 @@ class LeitorSerial(threading.Thread):
             self.ser.setRTS(True)
             time.sleep(0.15)
             self.ser.setRTS(False)
+            # A placa leva um instante para voltar. Ler nesse meio tempo
+            # produz o mesmo erro de "readiness to read but returned no data".
+            time.sleep(0.2)
             return True
         except Exception as exc:  # pragma: no cover - depende do hardware
             self.hub.publicar("erro", f"falha ao resetar: {exc}")
@@ -199,35 +248,61 @@ class LeitorSerial(threading.Thread):
                 continue
 
             if self.ser is None:
+                if self._espera > 0:
+                    time.sleep(self._espera)
                 porta = self.porta or achar_porta()
                 if porta is None:
                     if self.conectado:
                         self.conectado = False
-                        self.hub.publicar("erro", "porta serial desapareceu")
-                    time.sleep(1.0)
+                        self._erro("porta serial desapareceu")
+                    self._recuar()
                     continue
                 try:
                     self.ser = serial.Serial(porta, self.baud, timeout=0.5)
                     self.conectado = True
-                    self.hub.publicar("info", f"serial aberta em {porta} @ {self.baud}")
+                    # Anunciar a abertura so uma vez por sessao estavel: numa
+                    # disputa de porta, o par abre/falha se repete, e avisar
+                    # toda vez enche o log tanto quanto o erro.
+                    if not self._avisou_aberta:
+                        self.hub.publicar(
+                            "info", f"serial aberta em {porta} @ {self.baud}")
+                        self._avisou_aberta = True
                 except Exception as exc:
                     self.conectado = False
-                    time.sleep(1.0)
+                    self._erro(
+                        f"nao consegui abrir {porta}: {exc}\n"
+                        "  (outro processo pode estar com a porta: um segundo "
+                        "painel, ou `pio device monitor`)")
+                    self._recuar()
                     continue
 
             try:
                 linha = self.ser.readline()
             except Exception as exc:
-                self.hub.publicar("erro", f"leitura falhou: {exc}")
+                self._erro(f"leitura falhou: {exc}")
                 self._fechar()
+                self._recuar()
                 continue
+
+            # So zeramos o backoff depois de uma LEITURA que deu certo.
+            # Zerar ao abrir seria inutil: abrir a porta quase sempre
+            # funciona mesmo quando outro processo ja a tem — o que falha
+            # e a leitura. Com o reset no lugar errado, o backoff nunca
+            # chegava a crescer.
+            self._espera = 0.0
+            self._ultimo_erro = ""
 
             if linha:
                 texto = linha.decode("utf-8", errors="replace").rstrip("\r\n")
                 if texto:
                     self.hub.publicar("serial", texto)
 
+    def _recuar(self) -> None:
+        """Dobra a espera ate 2 s. Mesma ideia do backoff do firmware."""
+        self._espera = 0.25 if self._espera == 0 else min(self._espera * 2, 2.0)
+
     def _fechar(self) -> None:
+        self._avisou_aberta = False
         if self.ser is not None:
             try:
                 self.ser.close()
@@ -303,6 +378,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(corpo)))
             self.end_headers()
             self.wfile.write(corpo)
+        elif self.path.startswith("/vendor/"):
+            self._vendor()
         elif self.path == "/api/status":
             porta = self.leitor.porta or achar_porta()
             self._json({
@@ -370,6 +447,33 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         else:
             self._json({"erro": "rota desconhecida"}, 404)
+
+    def _vendor(self) -> None:
+        """Serve os arquivos de terceiros que acompanham o painel.
+
+        Eles sao versionados junto (vendorizados) em vez de vir de um CDN
+        porque esta ferramenta precisa funcionar OFFLINE — na garagem, ou no
+        carro, que e justamente onde o ESP32 vai estar.
+        """
+        nome = self.path.rsplit("/", 1)[-1]
+        # Trava de path traversal: so nome simples, nada de ".." ou barras.
+        if not nome or "/" in nome or ".." in nome or nome.startswith("."):
+            self._json({"erro": "caminho invalido"}, 400)
+            return
+        arquivo = Path(__file__).parent / "vendor" / nome
+        if not arquivo.is_file():
+            self._json({"erro": "nao encontrado"}, 404)
+            return
+        tipos = {".js": "application/javascript", ".css": "text/css",
+                 ".woff2": "font/woff2", ".svg": "image/svg+xml"}
+        corpo = arquivo.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type",
+                         tipos.get(arquivo.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(corpo)
 
     def _stream(self) -> None:
         """Server-Sent Events: uma conexao aberta por navegador.
