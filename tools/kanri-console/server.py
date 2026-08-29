@@ -554,9 +554,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         pio = achar_pio()
+
+        # Sem ESP32 plugado, o PlatformIO ADIVINHA a porta e escolhe
+        # /dev/ttyS0 — a serial legada da placa-mae, que normalmente nem
+        # existe. O erro que sai e "Could not open /dev/ttyS0", que aponta
+        # para o lugar errado: quem le vai procurar problema de permissao ou
+        # de driver, quando o cabo e que esta fora.
+        #
+        # Recusar aqui, com o motivo certo, e mais util do que deixar a
+        # ferramenta chutar.
+        porta_atual = self.leitor.porta or achar_porta()
+        if self.path == "/api/flash" and not porta_atual:
+            self.hub.publicar(
+                "erro",
+                "nenhum ESP32 detectado: confira o cabo USB "
+                "(nao ha /dev/ttyUSB* nem /dev/ttyACM*)")
+            self._json({"ok": False, "erro": "nenhuma porta serial detectada"}, 400)
+            return
+
         acoes = {
+            # A porta vai EXPLICITA. Sem isso o PlatformIO auto-detecta e pode
+            # escolher outra serial da maquina.
             "/api/flash": (
-                [pio or "pio", "run", "-e", "esp32dev", "-t", "upload"],
+                [pio or "pio", "run", "-e", "esp32dev", "-t", "upload",
+                 "--upload-port", porta_atual or ""],
                 "gravacao", True),
             "/api/build": (
                 [pio or "pio", "run", "-e", "esp32dev"], "compilacao", False),
