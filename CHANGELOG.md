@@ -7,6 +7,47 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Varredura Bluetooth real** (`BtSerialTransport`). O ESP32 procura o
+  adaptador no ar, lista o que encontrou com nome, MAC e potência de sinal, e
+  entrega a lista para a lógica decidir.
+- **Escolha do adaptador** (`kanri_obd/adapter_matcher`), com regras
+  explícitas: MAC tem prioridade **e é exclusivo** (não cai para o nome se o
+  MAC não aparecer); nome casa de forma exata ignorando caixa; empate de nome
+  desempata pelo sinal mais forte; dispositivo com nome ou MAC malformado é
+  ignorado. Nome de dispositivo Bluetooth é escolhido por quem anuncia — é
+  entrada hostil, e tratada como tal.
+- **LED de status como canal de comunicação** (`kanri_core/led_pattern`).
+  Dentro do carro não há monitor serial; o LED é o que se vê. Cada estado tem
+  um padrão próprio: busca pisca rápido e contínuo; a conexão progride com
+  2, 3 e 4 piscadas conforme se aproxima de operar; operando é um heartbeat
+  discreto a cada 2 s; degradado pisca lento; falha terminal fica aceso fixo —
+  o único padrão que não pisca, reconhecível de relance.
+- `[boot] motivo do reset` no log: distinguir "liguei na tomada" de "o
+  watchdog me reiniciou" é o que torna visível um bloqueio no loop.
+- Primeira exclusão `GCOVR_EXCL` do projeto, em `adapter_matcher.cpp`: o
+  retorno defensivo de `iguais_sem_caixa()` é inalcançável pelo caminho
+  público, porque `utilizavel()` já rejeitou dispositivos sem terminador antes
+  da comparação. A justificativa está escrita no código, como exige
+  [docs/TESTING.md](docs/TESTING.md).
+- `board_build.partitions = huge_app.csv`: a pilha Bluetooth leva o binário de
+  270 KB para 1,1 MB, que não cabe com folga na tabela padrão. Abre-se mão da
+  partição de OTA, que não está no roadmap.
+
+### Corrigido
+- **A varredura bloqueava o loop por 5 segundos.** `BluetoothSerial::discover()`
+  é síncrono, e durante ele o `loop()` não roda — com duas consequências: o
+  LED congelava exatamente durante a busca (o oposto do que deveria mostrar)
+  e o watchdog não era alimentado. Medido no hardware: **o ESP32 reiniciava a
+  cada ~28 s**. Trocado por `discoverAsync()` com o tempo controlado no loop.
+  Depois da correção: 56 s contínuos sem reboot, `motivo do reset` sempre
+  power-on, varreduras de 5,0 s cronometradas e backoff de 1, 2, 4, 8, 16 s
+  cumprido à risca.
+- **Log serial saía cortado.** Com `CORE_DEBUG_LEVEL=3`, a pilha Bluetooth
+  escrevia na Serial a partir de outra task e intercalava com o nosso log,
+  partindo linhas ao meio (`MICRO88  70:08:94:ec[ 11752][I][BluetoothSerial...`).
+  Reduzido para nível 1 (apenas erros).
+
 Próxima versão planejada: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP.md#-v020--conexão-e-leitura-de-pids).
 
 ### Adicionado
