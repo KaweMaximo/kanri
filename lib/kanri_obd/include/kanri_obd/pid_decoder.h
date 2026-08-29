@@ -31,6 +31,7 @@
 #include <cstdint>
 
 #include "kanri_obd/elm327_parser.h"
+#include "kanri_obd/obd_pid.h"
 
 namespace kanri::obd {
 
@@ -82,6 +83,16 @@ DecodedValue decode(const ParsedFrame& frame);
 
 /// O PID tem formula implementada?
 bool is_decodable(std::uint8_t mode, std::uint8_t pid);
+
+/// Quantos bytes de dados uma formula precisa ler.
+///
+/// Vem da FORMULA, e nao do `expected_bytes` do catalogo. Se viessem do mesmo
+/// lugar, um erro de digitacao na tabela faria a formula ler um byte que nao
+/// chegou — e o valor sairia plausivel e errado, o pior tipo de defeito.
+/// Ha um teste que confronta os dois.
+///
+/// @return 0 para PidFormula::None e para valores fora do enum.
+std::uint8_t formula_byte_count(PidFormula formula);
 
 /// Nome legivel do status. Nunca devolve nullptr.
 const char* to_string(DecodeStatus status);

@@ -8,6 +8,41 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Catálogo de PIDs expandido de 18 para 50 entradas**, cobrindo ajuste de
+  combustível (os quatro *fuel trims*), pressão de combustível e do rail,
+  EGR, purga do canister, pressão evaporativa e barométrica, temperatura dos
+  quatro catalisadores, consumo instantâneo, teor de etanol, e os contadores
+  de distância e tempo desde a última limpeza de códigos.
+
+  Os contadores são úteis no diagnóstico de um jeito que não é óbvio:
+  respondem *"o defeito voltou depois de quantos quilômetros?"*.
+
+### Modificado
+- **O decodificador passou a ser dirigido pela tabela.** A fórmula e a faixa
+  física de cada PID agora ficam na mesma linha do PID que elas decodificam,
+  em vez de num `switch` separado.
+
+  Com ~50 entradas, aquele `switch` viraria centenas de linhas em que é fácil
+  colar a fórmula errada no PID vizinho — e o resultado seria um número
+  plausível e errado, o pior tipo de defeito.
+- `formula_byte_count()` virou pública. Ela é a fonte de quantos bytes cada
+  fórmula lê, **independente do `expected_bytes` da tabela** — se viessem do
+  mesmo lugar, um erro de digitação faria a fórmula ler um byte que não
+  chegou. Um teste confronta os dois para todas as entradas.
+
+### Documentação
+- **Armadilha registrada: MODO não é PID.** O número `0x2E` aparece nos dois
+  lugares significando coisas opostas — o **modo** `0x2E` é UDS
+  `WriteDataByIdentifier` (escrita, proibido), e o **PID** `0x2E` dentro do
+  Modo 01 é o comando de purga do canister (leitura pura, permitido). O mesmo
+  vale para `0x31`.
+
+  Confundi-los levaria a bloquear uma leitura legítima — ou, muito pior, a
+  liberar uma escrita achando que é PID. Há um teste que fixa os dois
+  comportamentos lado a lado.
+
+
+### Adicionado
 - **Leitura de códigos de falha no firmware.** Comando `dtc` no console, e uma
   leitura automática ao conectar — é a informação que se quer saber assim que
   o aparelho liga, e que não muda a cada segundo.
