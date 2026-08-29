@@ -8,6 +8,16 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Corrigido
+- **O painel web mostrava um contador de retentativas obsoleto.** Ele guardava
+  o último `[retry] tentativa N` visto no log e nunca limpava ao recuperar,
+  exibindo `Polling / tentativa 32` — duas coisas que não podem ser verdade
+  juntas.
+
+  Custou investigação de verdade: essa mesma tela apontou um bug de backoff
+  que **era real** (PR #19) e depois continuou apontando um que já não
+  existia. Agora entrar em `Polling` zera o contador na tela, do mesmo jeito
+  que o firmware zera o dele.
+
 - **O painel congelava sempre que o Bluetooth estava tentando conectar.**
   Sintoma relatado: *"funciona somente conectado"*.
 

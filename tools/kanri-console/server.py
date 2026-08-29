@@ -260,6 +260,18 @@ class Hub:
         if m:
             self.ultimo_evento = m.group(2)
             self.estado_fw = m.group(3)
+            # Voltou a operar: o firmware zerou o backoff (RetryPolicy::
+            # on_success), mas nao ha linha de log dizendo isso. Sem limpar
+            # aqui, o painel guardaria para sempre o ultimo "[retry] tentativa
+            # N" que viu — e mostraria "Polling / tentativa 32", duas coisas
+            # que nao podem ser verdade juntas.
+            #
+            # Isso ja custou tempo de investigacao: em 29/08/2026 essa mesma
+            # tela apontou para um bug de backoff que era real (PR #19), e
+            # depois continuou apontando para um que nao existia mais.
+            if self.estado_fw == "Polling":
+                self.tentativa = 0
+                self.proximo_retry_ms = 0
             return
         m = RE_RETRY.search(texto)
         if m:
