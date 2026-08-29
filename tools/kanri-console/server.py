@@ -223,6 +223,22 @@ class LeitorSerial(threading.Thread):
             self.hub.publicar("erro", msg)
             self._ultimo_erro = msg
 
+    def enviar_linha(self, texto: str) -> bool:
+        """Escreve uma linha no serial, como se alguem tivesse digitado.
+
+        E assim que o painel conversa com o console de configuracao do
+        firmware (ver lib/kanri_config/command_parser.h).
+        """
+        if self.ser is None:
+            return False
+        try:
+            self.ser.write((texto + "\r\n").encode("utf-8", errors="replace"))
+            self.ser.flush()
+            return True
+        except Exception as exc:
+            self._erro(f"falha ao enviar: {exc}")
+            return False
+
     def resetar_placa(self) -> bool:
         """Pulso DTR/RTS — o mesmo reset do botao EN da placa."""
         if self.ser is None:
@@ -442,6 +458,28 @@ class Handler(BaseHTTPRequestHandler):
                 daemon=True,
             ).start()
             self._json({"ok": True})
+        elif self.path == "/api/send":
+            tamanho = int(self.headers.get("Content-Length", 0) or 0)
+            # Limite explicito: o console do firmware recusa acima de 96
+            # caracteres, e nao ha motivo para aceitar mais aqui.
+            if tamanho > 512:
+                self._json({"ok": False, "erro": "linha longa demais"}, 400)
+                return
+            corpo = self.rfile.read(tamanho).decode("utf-8", errors="replace")
+            try:
+                texto = json.loads(corpo).get("linha", "")
+            except Exception:
+                texto = ""
+            texto = texto.strip()
+            if not texto:
+                self._json({"ok": False, "erro": "linha vazia"}, 400)
+                return
+            ok = self.leitor.enviar_linha(texto)
+            if ok:
+                self.hub.publicar("cmd", f"> {texto}")
+            else:
+                self.hub.publicar("erro", "serial fechada: nao enviei")
+            self._json({"ok": ok})
         elif self.path == "/api/clear":
             self.hub.limpar()
             self._json({"ok": True})

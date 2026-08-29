@@ -8,6 +8,40 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Configuração em runtime pelo console serial.** O nome Bluetooth do
+  adaptador ELM327 varia entre modelos (`OBDII`, `V-LINK`, `Android-Vlink`).
+  Sem isso, descobrir que o seu se chama diferente exigiria recompilar e
+  regravar o firmware — dentro do carro, com o notebook no colo. Agora é
+  digitar uma linha:
+
+  ```
+  nome V-LINK
+  save
+  ```
+
+  Comandos: `nome`, `mac`, `pin`, `intervalo`, `timeout`, `brilho`,
+  `unidades`, `save`, `load`, `padroes`, `status`, `scan`, `reiniciar`,
+  `ajuda`. Aceita português e inglês, com `set` opcional.
+
+  A interpretação da linha é lógica pura em `kanri_config/command_parser`,
+  com teste; ler do Serial e aplicar é hardware, e fica no `main.cpp`.
+
+  Um valor fora de faixa é **recusado**, não ajustado em silêncio — quem
+  digitou precisa saber que não valeu. E uma invariante garante que nenhum
+  comando, com nenhum argumento, deixa a configuração inválida.
+- **Persistência real na flash** (`NvsConfigStore`). A struct é gravada como
+  um blob único: uma escrita só (a flash tem ciclos contados) e sem estado
+  intermediário com metade dos campos novos.
+
+  O preço é que o layout da struct vira formato de arquivo — por isso
+  `schema_version` existe, e por isso **toda leitura passa por
+  `clamp_to_valid()`**: uma queda de tensão durante a gravação, comum em 12 V
+  automotivo, deixa lixo ali.
+
+  Verificado no hardware: configurar → `save` → reiniciar → a configuração
+  volta da flash.
+- **Campo de comando no Kanri Console**, com histórico por seta ↑/↓. Fecha o
+  ciclo: dá para configurar o adaptador pelo painel, sem terminal serial.
 - **Cliente OBD2 completo** (`ObdClient`): sequência AT de inicialização,
   envio de comando, leitura até o prompt `>` com timeout, e retentativa
   apenas para falhas passageiras — insistir num `NO DATA` (a ECU não tem o
