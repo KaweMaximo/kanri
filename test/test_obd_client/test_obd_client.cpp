@@ -38,7 +38,12 @@ struct Harness {
   kanri::test::FakeTransport transport;
   ObdClient client{transport, clock};
 
-  Harness() { transport.connect(); }
+  Harness() {
+    // O transporte adianta o relogio a cada consulta. Sem isso, uma leitura
+    // que este duble nunca responde deixaria o cliente esperando para sempre.
+    transport.drive_clock(clock);
+    transport.connect();
+  }
 };
 
 }  // namespace
@@ -60,14 +65,20 @@ void test_modo_proibido_nao_escreve_nada_no_transporte(void) {
   TEST_ASSERT_EQUAL_UINT32(1, h.client.rejected_count());
 }
 
-// Varredura exaustiva: nenhum dos 254 modos proibidos consegue escrever.
-// Um teste de exemplo provaria um caso; este prova que nao ha brecha.
+// Varredura exaustiva: nenhum modo PROIBIDO consegue escrever.
+//
+// A lista de permitidos e consultada em is_read_only_mode(), e nao repetida
+// aqui: este teste cobra a CONSEQUENCIA (nada sai para o barramento), enquanto
+// test_safety_guard cobra a LISTA em si, escrita la de forma independente da
+// implementacao. Os dois juntos impedem tanto afrouxar a regra quanto furar a
+// implementacao dela.
 void test_nenhum_modo_proibido_alcanca_o_barramento(void) {
   for (int mode = 0; mode <= 0xFF; ++mode) {
-    if (mode == 0x01 || mode == 0x09) continue;
+    const std::uint8_t m = static_cast<std::uint8_t>(mode);
+    if (kanri::obd::is_read_only_mode(m)) continue;
 
     Harness h;
-    h.client.read_pid(static_cast<std::uint8_t>(mode), 0x0C);
+    h.client.read_pid(m, 0x0C);
 
     TEST_ASSERT_EQUAL_UINT32_MESSAGE(
         0, static_cast<std::uint32_t>(h.transport.written().size()),

@@ -11,6 +11,7 @@
 #include <cstring>
 #include <string>
 
+#include "fake_clock.h"
 #include "kanri_obd/i_transport.h"
 
 namespace kanri::test {
@@ -24,6 +25,17 @@ class FakeTransport final : public obd::ITransport {
   }
   void fail_next_connect() { connect_ok_ = false; }
   void drop_link() { connected_ = false; }
+
+  /// Liga este transporte a um relogio falso, para que ele ADIANTE o tempo a
+  /// cada consulta a porta.
+  ///
+  /// Sem isso, um codigo que espera resposta consultando o relogio fica em
+  /// laco infinito: o tempo nunca passa e o timeout nunca vence. Foi
+  /// exatamente o que aconteceu quando os modos de DTC passaram a ser
+  /// permitidos e o ObdClient comecou a de fato aguardar resposta deste
+  /// duble. Um teste que TRAVA e pior que um que falha — ele nao diz onde
+  /// esta o problema, e segura a suite inteira.
+  void drive_clock(FakeClock& clock) { clock_ = &clock; }
 
   /// Tudo que o codigo sob teste escreveu. Vazio = nada foi ao barramento.
   const std::string& written() const { return outbox_; }
@@ -52,6 +64,7 @@ class FakeTransport final : public obd::ITransport {
   }
 
   std::size_t available() const override {
+    if (clock_ != nullptr) clock_->advance(1);
     return connected_ ? inbox_.size() : 0;
   }
 
@@ -60,6 +73,7 @@ class FakeTransport final : public obd::ITransport {
   std::string outbox_;
   bool connected_ = false;
   bool connect_ok_ = true;
+  FakeClock* clock_ = nullptr;
 };
 
 }  // namespace kanri::test
