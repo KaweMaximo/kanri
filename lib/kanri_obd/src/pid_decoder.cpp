@@ -12,100 +12,120 @@ DecodedValue recusa(DecodeStatus status) {
   return v;
 }
 
-/// Monta o valor final ja conferindo a faixa fisica. Uma funcao so para os
-/// dois passos evita o erro de aplicar a formula e esquecer a validacao.
-DecodedValue aceitar(float valor, float minimo, float maximo,
-                     const char* unidade) {
-  DecodedValue v;
-  v.unit = unidade;
-  if (valor < minimo || valor > maximo) {
-    v.status = DecodeStatus::OutOfRange;
-    return v;
-  }
-  v.status = DecodeStatus::Ok;
-  v.value = valor;
-  return v;
-}
-
 float A(const ParsedFrame& f) { return static_cast<float>(f.data[0]); }
 float B(const ParsedFrame& f) { return static_cast<float>(f.data[1]); }
+float AB(const ParsedFrame& f) { return A(f) * 256.0F + B(f); }
+
+}  // namespace
+
+std::uint8_t formula_byte_count(PidFormula f) {
+  switch (f) {
+    case PidFormula::RawAB:
+    case PidFormula::Rpm:
+    case PidFormula::MafRate:
+    case PidFormula::Voltage:
+    case PidFormula::CatalystTemp:
+    case PidFormula::RailPressure:
+    case PidFormula::RailGauge:
+    case PidFormula::FuelRate:
+    case PidFormula::AbsLoad:
+    case PidFormula::EvapPressure:
+      return 2;
+    case PidFormula::RawA:
+    case PidFormula::PercentA:
+    case PidFormula::SignedPercent:
+    case PidFormula::TempA:
+    case PidFormula::TimingAdvance:
+    case PidFormula::FuelPressure:
+      return 1;
+    case PidFormula::None:
+      return 0;
+  }
+  return 0;  // valor fora do enum: nao decodificavel
+}
+
+namespace {
+
+/// Aplica a formula. Nao valida faixa: isso e o passo seguinte, de proposito
+/// separado, para que a conversao e a barreira fisica nao se misturem.
+float aplicar(PidFormula formula, const ParsedFrame& f) {
+  switch (formula) {
+    case PidFormula::RawA:          return A(f);
+    case PidFormula::RawAB:         return AB(f);
+    case PidFormula::PercentA:      return A(f) * 100.0F / 255.0F;
+    // Fuel trim e EGR sao deslocados por 128: negativo = a ECU esta TIRANDO
+    // combustivel (mistura rica); positivo = adicionando (mistura pobre).
+    case PidFormula::SignedPercent: return (A(f) - 128.0F) * 100.0F / 128.0F;
+    // O -40 permite representar temperatura negativa num byte sem sinal.
+    case PidFormula::TempA:         return A(f) - 40.0F;
+    case PidFormula::Rpm:           return AB(f) / 4.0F;
+    case PidFormula::MafRate:       return AB(f) / 100.0F;
+    case PidFormula::Voltage:       return AB(f) / 1000.0F;
+    case PidFormula::TimingAdvance: return A(f) / 2.0F - 64.0F;
+    case PidFormula::CatalystTemp:  return AB(f) / 10.0F - 40.0F;
+    case PidFormula::FuelPressure:  return A(f) * 3.0F;
+    case PidFormula::RailPressure:  return AB(f) * 0.079F;
+    case PidFormula::RailGauge:     return AB(f) * 10.0F;
+    case PidFormula::FuelRate:      return AB(f) / 20.0F;
+    case PidFormula::AbsLoad:       return AB(f) * 100.0F / 255.0F;
+    // Pressao do sistema evaporativo e o unico com sinal de verdade: os dois
+    // bytes formam um inteiro de 16 bits COM sinal, dividido por 4.
+    case PidFormula::EvapPressure: {
+      const std::int16_t bruto = static_cast<std::int16_t>(
+          (static_cast<std::uint16_t>(f.data[0]) << 8) | f.data[1]);
+      return static_cast<float>(bruto) / 4.0F;
+    }
+    // GCOVR_EXCL_START
+    // Inalcancavel: decode() so chama esta funcao depois de confirmar que a
+    // formula precisa de pelo menos um byte, o que exclui None. Os casos
+    // ficam para que o compilador continue avisando (-Wswitch) quando uma
+    // formula nova for acrescentada ao enum e esquecida aqui.
+    case PidFormula::None:
+      return 0.0F;
+  }
+  return 0.0F;
+  // GCOVR_EXCL_STOP
+}
 
 }  // namespace
 
 bool is_decodable(std::uint8_t mode, std::uint8_t pid) {
-  if (mode != kModeCurrentData) return false;
-  switch (pid) {
-    case 0x04: case 0x05: case 0x0B: case 0x0C: case 0x0D:
-    case 0x0E: case 0x0F: case 0x10: case 0x11: case 0x1F:
-    case 0x2F: case 0x42: case 0x43: case 0x46: case 0x5C:
-      return true;
-    default:
-      return false;
-  }
+  const PidDescriptor* d = find_pid(mode, pid);
+  return d != nullptr && d->formula != PidFormula::None;
 }
 
 DecodedValue decode(const ParsedFrame& frame) {
   if (!frame.ok()) return recusa(DecodeStatus::FrameNotOk);
 
-  // O frame guarda o modo ECOADO (0x41). A formula e indexada pelo modo
+  // O frame guarda o modo ECOADO (0x41). A tabela e indexada pelo modo
   // PEDIDO (0x01), entao desfazemos o +0x40 antes de consultar.
   const std::uint8_t modo = static_cast<std::uint8_t>(frame.mode - 0x40);
-  const std::uint8_t pid = frame.pid;
 
-  // Modo diferente de 01 nao tem formula aqui (o 09 devolve texto, nao
-  // numero). O PID e conferido pelo `default:` do switch, adiante — deixar a
-  // checagem junto das formulas evita que as duas listas divirjam.
-  if (modo != kModeCurrentData) return recusa(DecodeStatus::NotDecodable);
+  const PidDescriptor* d = find_pid(modo, frame.pid);
+  if (d == nullptr) return recusa(DecodeStatus::NotDecodable);
 
-  // Quantos bytes a formula precisa. Conferir aqui, e nao confiar no
-  // catalogo, mantem a decodificacao segura mesmo se alguem editar a tabela.
-  const std::uint8_t precisa = (pid == 0x0C || pid == 0x10 || pid == 0x1F ||
-                                pid == 0x42 || pid == 0x43)
-                                   ? 2
-                                   : 1;
+  // Zero bytes significa "sem formula" (mapa de bits, status) ou formula
+  // desconhecida. Uma checagem so, no lugar de duas que poderiam divergir.
+  const std::uint8_t precisa = formula_byte_count(d->formula);
+  if (precisa == 0) return recusa(DecodeStatus::NotDecodable);
   if (frame.length < precisa) return recusa(DecodeStatus::WrongLength);
 
-  switch (pid) {
-    // -- Dois bytes ---------------------------------------------------------
-    case 0x0C:  // rotacao: (A*256 + B) / 4
-      return aceitar((A(frame) * 256.0F + B(frame)) / 4.0F, kMinRpm, kMaxRpm,
-                     "rpm");
-    case 0x10:  // fluxo de ar: (A*256 + B) / 100
-      return aceitar((A(frame) * 256.0F + B(frame)) / 100.0F, kMinMaf, kMaxMaf,
-                     "g/s");
-    case 0x1F:  // tempo de motor ligado: A*256 + B
-      return aceitar(A(frame) * 256.0F + B(frame), 0.0F, 65535.0F, "s");
-    case 0x42:  // tensao do modulo: (A*256 + B) / 1000
-      return aceitar((A(frame) * 256.0F + B(frame)) / 1000.0F, kMinVolts,
-                     kMaxVolts, "V");
-    case 0x43:  // carga absoluta: (A*256 + B) * 100 / 255
-      return aceitar((A(frame) * 256.0F + B(frame)) * 100.0F / 255.0F, 0.0F,
-                     25700.0F, "%");
+  DecodedValue v;
+  v.unit = d->unit;
+  const float valor = aplicar(d->formula, frame);
 
-    // -- Um byte ------------------------------------------------------------
-    case 0x04:  // carga do motor: A * 100 / 255
-    case 0x11:  // posicao da borboleta
-    case 0x2F:  // nivel de combustivel
-      return aceitar(A(frame) * 100.0F / 255.0F, kMinPercent, kMaxPercent, "%");
-
-    case 0x05:  // temperatura do liquido de arrefecimento: A - 40
-    case 0x0F:  // temperatura do ar admitido
-    case 0x46:  // temperatura ambiente
-    case 0x5C:  // temperatura do oleo
-      return aceitar(A(frame) - 40.0F, kMinTempC, kMaxTempC, "C");
-
-    case 0x0B:  // pressao absoluta no coletor: A
-      return aceitar(A(frame), kMinKpa, kMaxKpa, "kPa");
-
-    case 0x0D:  // velocidade: A
-      return aceitar(A(frame), kMinSpeedKmh, kMaxSpeedKmh, "km/h");
-
-    case 0x0E:  // avanco de ignicao: A/2 - 64
-      return aceitar(A(frame) / 2.0F - 64.0F, -64.0F, 64.0F, "deg");
-
-    default:
-      return recusa(DecodeStatus::NotDecodable);
+  // SEGUNDA BARREIRA. Aplicar a formula nao basta: um frame pode passar pelo
+  // parser — hex valido, modo e PID certos, tamanho certo — e ainda conter
+  // valor impossivel, porque e isso que ruido eletrico produz. Ver
+  // docs/SAFETY.md.
+  if (valor < d->min_value || valor > d->max_value) {
+    v.status = DecodeStatus::OutOfRange;
+    return v;
   }
+
+  v.status = DecodeStatus::Ok;
+  v.value = valor;
+  return v;
 }
 
 const char* to_string(DecodeStatus status) {

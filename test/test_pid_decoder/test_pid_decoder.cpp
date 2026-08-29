@@ -16,7 +16,9 @@
 
 #include <cstring>
 
+#include "kanri_obd/obd_pid.h"
 #include "kanri_obd/pid_decoder.h"
+#include "kanri_obd/safety.h"
 
 using kanri::obd::decode;
 using kanri::obd::DecodeStatus;
@@ -190,6 +192,199 @@ void test_bytes_insuficientes(void) {
 }
 
 // ---------------------------------------------------------------------------
+//  AS FORMULAS NOVAS
+// ---------------------------------------------------------------------------
+
+// Fuel trim e deslocado por 128. Negativo = a ECU esta TIRANDO combustivel
+// (mistura rica); positivo = adicionando (mistura pobre). E o primeiro lugar
+// onde uma entrada de ar falsa aparece — por isso o sinal importa tanto.
+void test_ajuste_de_combustivel(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, 0.0F, decodificar("410680", 0x01, 0x06).value);
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, -100.0F, decodificar("410600", 0x01, 0x06).value);
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, 99.2F, decodificar("4106FF", 0x01, 0x06).value);
+  // 0x8C = 140 -> (140-128)*100/128 = +9,4% : a ECU adicionando combustivel
+  TEST_ASSERT_FLOAT_WITHIN(0.2F, 9.4F, decodificar("41068C", 0x01, 0x06).value);
+  TEST_ASSERT_EQUAL_STRING("%", decodificar("410680", 0x01, 0x06).unit);
+}
+
+void test_temperatura_do_catalisador(void) {
+  // (A*256+B)/10 - 40. 0x1B 0x58 = 7000 -> 700 - 40 = 660 C
+  const DecodedValue v = decodificar("413C1B58", 0x01, 0x3C);
+  assert_status(DecodeStatus::Ok, v.status);
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, 660.0F, v.value);
+  TEST_ASSERT_EQUAL_STRING("C", v.unit);
+}
+
+// O unico PID com inteiro COM SINAL de verdade: pressao do sistema
+// evaporativo pode ser negativa (vacuo).
+void test_pressao_evaporativa_com_sinal(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, 0.0F, decodificar("41320000", 0x01, 0x32).value);
+  // 0xFFFF = -1 em complemento de dois -> -0,25 Pa
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, -0.25F, decodificar("4132FFFF", 0x01, 0x32).value);
+  // 0x1000 = 4096 -> 1024 Pa
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, 1024.0F, decodificar("41321000", 0x01, 0x32).value);
+}
+
+void test_pressao_de_combustivel(void) {
+  // A*3. 0x64 = 100 -> 300 kPa
+  TEST_ASSERT_FLOAT_WITHIN(0.1F, 300.0F, decodificar("410A64", 0x01, 0x0A).value);
+}
+
+void test_consumo_instantaneo(void) {
+  // (A*256+B)/20. 0x00 0xC8 = 200 -> 10 L/h
+  const DecodedValue v = decodificar("415E00C8", 0x01, 0x5E);
+  assert_status(DecodeStatus::Ok, v.status);
+  TEST_ASSERT_FLOAT_WITHIN(0.01F, 10.0F, v.value);
+  TEST_ASSERT_EQUAL_STRING("L/h", v.unit);
+}
+
+void test_contadores_desde_a_limpeza(void) {
+  // Uteis no diagnostico: "o defeito voltou depois de quantos km?"
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, 1234.0F, decodificar("412104D2", 0x01, 0x21).value);
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, 12.0F, decodificar("41300C", 0x01, 0x30).value);
+}
+
+void test_pressao_atmosferica_e_etanol(void) {
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, 101.0F, decodificar("413365", 0x01, 0x33).value);
+  // Etanol: A*100/255. 0xFF -> 100%
+  TEST_ASSERT_FLOAT_WITHIN(0.5F, 100.0F, decodificar("4152FF", 0x01, 0x52).value);
+}
+
+// ---------------------------------------------------------------------------
+//  A ARMADILHA MODO x PID
+// ---------------------------------------------------------------------------
+
+// O numero 0x2E aparece nos dois lugares significando coisas OPOSTAS:
+//   MODO 0x2E = UDS WriteDataByIdentifier -> ESCRITA, proibido
+//   PID  0x2E (no Modo 01) = purga do canister -> LEITURA, permitido
+//
+// Confundi-los levaria a bloquear uma leitura legitima — ou, muito pior, a
+// liberar uma escrita achando que e PID.
+void test_pid_2e_e_leitura_mas_modo_2e_e_escrita(void) {
+  // Como PID do modo 01: decodifica normalmente.
+  const DecodedValue v = decodificar("412E80", 0x01, 0x2E);
+  assert_status(DecodeStatus::Ok, v.status);
+  TEST_ASSERT_EQUAL_STRING("%", v.unit);
+
+  // Como MODO: bloqueado pela allowlist.
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(kanri::obd::RequestVerdict::ForbiddenMode),
+      static_cast<int>(kanri::obd::check_obd_request(0x2E, 0x00)));
+  TEST_ASSERT_FALSE(kanri::obd::is_read_only_mode(0x2E));
+
+  // O mesmo vale para 0x31.
+  TEST_ASSERT_TRUE(kanri::obd::is_decodable(0x01, 0x31));
+  TEST_ASSERT_FALSE(kanri::obd::is_read_only_mode(0x31));
+}
+
+// ---------------------------------------------------------------------------
+//  INVARIANTES DO CATALOGO
+// ---------------------------------------------------------------------------
+
+// A contagem de bytes vem da FORMULA. Testada diretamente, inclusive com um
+// valor fora do enum — que e o que uma corrupcao de memoria produziria.
+void test_contagem_de_bytes_por_formula(void) {
+  using kanri::obd::formula_byte_count;
+  using kanri::obd::PidFormula;
+
+  TEST_ASSERT_EQUAL_UINT8(0, formula_byte_count(PidFormula::None));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::RawA));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::PercentA));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::SignedPercent));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::TempA));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::TimingAdvance));
+  TEST_ASSERT_EQUAL_UINT8(1, formula_byte_count(PidFormula::FuelPressure));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::RawAB));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::Rpm));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::MafRate));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::Voltage));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::CatalystTemp));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::RailPressure));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::RailGauge));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::FuelRate));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::AbsLoad));
+  TEST_ASSERT_EQUAL_UINT8(2, formula_byte_count(PidFormula::EvapPressure));
+
+  // Fora do enum: nao decodificavel, nunca um numero inventado.
+  TEST_ASSERT_EQUAL_UINT8(0, formula_byte_count(static_cast<PidFormula>(99)));
+}
+
+// O `expected_bytes` da tabela nao pode ser MENOR do que a formula precisa
+// ler. Se fosse, a formula leria um byte que nao chegou — e o valor sairia
+// plausivel e errado, o pior tipo de defeito.
+void test_tabela_declara_bytes_suficientes_para_a_formula(void) {
+  for (std::size_t i = 0; i < kanri::obd::kSupportedPidCount; ++i) {
+    const auto& d = kanri::obd::kSupportedPids[i];
+    if (d.formula == kanri::obd::PidFormula::None) continue;
+
+    // Monta um frame com exatamente os bytes que a tabela promete.
+    ParsedFrame f;
+    f.status = kanri::obd::ParseStatus::Ok;
+    f.mode = static_cast<std::uint8_t>(d.mode + 0x40);
+    f.pid = d.pid;
+    f.length = d.expected_bytes;
+    for (std::uint8_t b = 0; b < d.expected_bytes && b < 32; ++b) f.data[b] = 0x40;
+
+    const DecodedValue v = decode(f);
+    TEST_ASSERT_NOT_EQUAL_INT_MESSAGE(
+        static_cast<int>(DecodeStatus::WrongLength), static_cast<int>(v.status),
+        d.key);
+  }
+}
+
+// Faixa invertida faria TODO valor ser recusado, e a grandeza sumiria da tela
+// sem explicacao.
+void test_faixas_fisicas_sao_coerentes(void) {
+  for (std::size_t i = 0; i < kanri::obd::kSupportedPidCount; ++i) {
+    const auto& d = kanri::obd::kSupportedPids[i];
+    if (d.formula == kanri::obd::PidFormula::None) continue;
+    TEST_ASSERT_TRUE_MESSAGE(d.min_value < d.max_value, d.key);
+    TEST_ASSERT_NOT_NULL(d.unit);
+    TEST_ASSERT_NOT_NULL(d.label);
+    TEST_ASSERT_TRUE_MESSAGE(d.key[0] != '\0', "PID sem chave");
+  }
+}
+
+// Chaves duplicadas quebrariam qualquer consumidor que indexe por elas.
+void test_chaves_do_catalogo_sao_unicas(void) {
+  for (std::size_t i = 0; i < kanri::obd::kSupportedPidCount; ++i) {
+    for (std::size_t j = i + 1; j < kanri::obd::kSupportedPidCount; ++j) {
+      TEST_ASSERT_FALSE_MESSAGE(
+          std::strcmp(kanri::obd::kSupportedPids[i].key,
+                      kanri::obd::kSupportedPids[j].key) == 0,
+          "duas entradas do catalogo com a mesma chave");
+    }
+  }
+}
+
+// Toda entrada com formula tem de produzir valor dentro da propria faixa,
+// para QUALQUER par de bytes — ou ser recusada. Nunca um numero impossivel
+// com status Ok, que e o que apareceria no painel.
+void test_nenhuma_formula_aceita_valor_fora_da_propria_faixa(void) {
+  for (std::size_t i = 0; i < kanri::obd::kSupportedPidCount; ++i) {
+    const auto& d = kanri::obd::kSupportedPids[i];
+    if (d.formula == kanri::obd::PidFormula::None) continue;
+
+    for (int a = 0; a <= 0xFF; a += 17) {
+      for (int b = 0; b <= 0xFF; b += 53) {
+        ParsedFrame f;
+        f.status = kanri::obd::ParseStatus::Ok;
+        f.mode = static_cast<std::uint8_t>(d.mode + 0x40);
+        f.pid = d.pid;
+        f.length = 2;
+        f.data[0] = static_cast<std::uint8_t>(a);
+        f.data[1] = static_cast<std::uint8_t>(b);
+
+        const DecodedValue v = decode(f);
+        if (!v.ok()) continue;
+        TEST_ASSERT_TRUE_MESSAGE(
+            v.value >= d.min_value && v.value <= d.max_value, d.key);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  INVARIANTES
 // ---------------------------------------------------------------------------
 
@@ -269,6 +464,22 @@ int main() {
   RUN_TEST(test_frame_invalido_nao_decodifica);
   RUN_TEST(test_pid_sem_formula);
   RUN_TEST(test_bytes_insuficientes);
+
+  RUN_TEST(test_ajuste_de_combustivel);
+  RUN_TEST(test_temperatura_do_catalisador);
+  RUN_TEST(test_pressao_evaporativa_com_sinal);
+  RUN_TEST(test_pressao_de_combustivel);
+  RUN_TEST(test_consumo_instantaneo);
+  RUN_TEST(test_contadores_desde_a_limpeza);
+  RUN_TEST(test_pressao_atmosferica_e_etanol);
+
+  RUN_TEST(test_pid_2e_e_leitura_mas_modo_2e_e_escrita);
+
+  RUN_TEST(test_contagem_de_bytes_por_formula);
+  RUN_TEST(test_tabela_declara_bytes_suficientes_para_a_formula);
+  RUN_TEST(test_faixas_fisicas_sao_coerentes);
+  RUN_TEST(test_chaves_do_catalogo_sao_unicas);
+  RUN_TEST(test_nenhuma_formula_aceita_valor_fora_da_propria_faixa);
 
   RUN_TEST(test_nenhum_valor_aceito_esta_fora_da_faixa);
   RUN_TEST(test_decodificacao_e_deterministica);
