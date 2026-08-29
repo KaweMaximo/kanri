@@ -82,6 +82,15 @@ void Max7219Display::render_raw(const std::uint8_t* digits, std::size_t count) {
   }
 }
 
+void Max7219Display::set_intensity(std::uint8_t intensity) {
+  if (!pronto_) return;
+  if (intensity > kanri::display::kMaxIntensity) {
+    intensity = kanri::display::kMaxIntensity;
+  }
+  escrever({static_cast<std::uint8_t>(kanri::display::Max7219Reg::Intensity),
+            intensity});
+}
+
 void Max7219Display::set_brightness(std::uint8_t percent) {
   if (!pronto_) return;
   escrever({static_cast<std::uint8_t>(kanri::display::Max7219Reg::Intensity),

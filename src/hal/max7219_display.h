@@ -39,6 +39,13 @@ class Max7219Display : public kanri::display::ISevenSeg {
   void render(const kanri::display::SegFrame& frame) override;
   void render_raw(const std::uint8_t* digits, std::size_t count) override;
   void set_brightness(std::uint8_t percent) override;
+
+  /// Escreve a intensidade CRUA do chip (0..15).
+  ///
+  /// Existe para a rampa de brilho: ela caminha em passos do MAX7219, e
+  /// converter de percentual a cada passo daria degraus repetidos, porque
+  /// varios percentuais caem na mesma intensidade.
+  void set_intensity(std::uint8_t intensity);
   void clear() override;
 
  private:

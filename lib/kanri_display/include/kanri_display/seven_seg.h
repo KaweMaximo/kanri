@@ -83,6 +83,10 @@ bool format_segments(float value, char* out, std::size_t cap,
 struct SegMeasure {
   const char* label;   ///< Rotulo curto, ate kSegDigits letras.
   const char* key;     ///< Identificador estavel, para log.
+  /// Faixa fisica da grandeza (max - min), para a suavizacao saber o que e
+  /// mudanca grande. 100 e ruido em rpm e e enorme em graus — ver
+  /// kanri_display/smoothing.h.
+  float span;
   /// Ponteiro para o campo dentro do snapshot.
   core::TelemetryValue core::TelemetrySnapshot::*field;
 };
@@ -91,6 +95,10 @@ struct SegMeasure {
 /// Temperatura primeiro: e a que estraga motor quando ninguem olha.
 extern const SegMeasure kSegMeasures[];
 extern const std::size_t kSegMeasureCount;
+
+/// Teto em tempo de compilacao, para quem precisa dimensionar vetor.
+/// Ha um teste conferindo que o catalogo real cabe aqui.
+constexpr std::size_t kSegMeasureMax = 12;
 
 /// Monta o que o mostrador deve exibir agora.
 ///
