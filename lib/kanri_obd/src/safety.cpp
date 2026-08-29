@@ -55,13 +55,25 @@ constexpr std::size_t kAllowedAtCommandCount =
 
 RequestVerdict check_obd_request(std::uint8_t mode, std::uint8_t pid) {
   // Barreira 1: somente os modos de leitura. Esta e a linha que separa
-  // "ler o carro" de "mexer no carro".
+  // "ler o carro" de "mexer no carro", e ela nao se moveu ao ampliarmos o
+  // escopo — os modos novos apenas PERGUNTAM.
   if (!is_read_only_mode(mode)) {
     return RequestVerdict::ForbiddenMode;
   }
-  // Barreira 2 (defesa em profundidade): o PID precisa estar no catalogo.
-  // Mesmo dentro do modo 01, so pedimos o que declaramos explicitamente.
-  if (find_pid(mode, pid) == nullptr) {
+
+  // Modos de codigo de falha sao pedidos sozinhos: nao ha PID a validar.
+  if (!mode_takes_pid(mode)) {
+    return RequestVerdict::Allowed;
+  }
+
+  // Barreira 2 (defesa em profundidade): quando ha catalogo para o modo, o
+  // PID precisa estar nele. Modos de teste (0x05, 0x06) usam numeracao
+  // propria e nao tem catalogo — a checagem e pulada, e isso nao afrouxa a
+  // seguranca, porque a barreira que impede escrita e a do modo.
+  const std::uint8_t catalogo = pid_catalog_mode(mode);
+  if (catalogo == 0) return RequestVerdict::Allowed;
+
+  if (find_pid(catalogo, pid) == nullptr) {
     return RequestVerdict::ForbiddenPid;
   }
   return RequestVerdict::Allowed;

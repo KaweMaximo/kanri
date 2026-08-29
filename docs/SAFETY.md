@@ -12,22 +12,48 @@ não é um `500` num endpoint, é um veículo em movimento.
 
 ## 1. Somente leitura — a regra que não se negocia
 
-O firmware **nunca** escreve nada na ECU. Apenas dois modos OBD2 são
-permitidos:
+O firmware **nunca** escreve nada na ECU.
 
-| Modo | O que é | Por que é permitido |
-|------|---------|---------------------|
-| `0x01` | Dados do instante (RPM, temperatura, pressão…) | Leitura pura |
-| `0x09` | Informação do veículo (VIN, calibração) | Leitura pura |
+A linha que separa o permitido do proibido **não é quantos modos**, e sim
+**ler versus alterar**. Todos os modos abaixo apenas *perguntam* ao carro;
+nenhum muda um bit dentro da ECU.
+
+| Modo | O que é |
+|------|---------|
+| `0x01` | Dados do instante (RPM, temperatura, pressão…) |
+| `0x02` | Freeze frame — as condições no instante em que a falha ocorreu |
+| `0x03` | Códigos de falha **gravados** |
+| `0x05` | Resultados de teste da sonda de oxigênio |
+| `0x06` | Resultados dos monitores de bordo |
+| `0x07` | Códigos de falha **pendentes** |
+| `0x09` | Informação do veículo (VIN, calibração) |
+| `0x0A` | Códigos de falha **permanentes** |
+
+> **Histórico:** até 29/08/2026 apenas `0x01` e `0x09` eram permitidos, e os
+> demais estavam "fora de escopo" — não por serem perigosos, mas por não terem
+> sido decididos. O escopo foi ampliado deliberadamente para que o projeto
+> sirva também como scanner de diagnóstico. **A regra de segurança não mudou:
+> nenhum modo acrescentado escreve.**
 
 ### O que está proibido, e por quê
 
 | Modo | O que faz | Risco |
 |------|-----------|-------|
-| `0x04` | **Limpa os códigos de falha (DTCs)** | Apaga o histórico de diagnóstico do carro. Perde-se a informação que o mecânico usaria. Irreversível. |
+| `0x04` | **Limpa os códigos de falha (DTCs)** | Apaga o histórico de diagnóstico do carro. Perde-se justamente a informação que o mecânico usaria. Irreversível. |
 | `0x08` | **Comanda atuadores** | Aciona componentes do motor por comando. Com o carro andando, é risco físico. |
-| `0x2E`, `0x31`, `0x3E` | Serviços UDS: escrever memória, rodar rotinas, manter sessão de diagnóstico | Podem reprogramar módulos. Fora do OBD2 padrão e fora do escopo deste projeto. |
-| `0x02`, `0x03`, `0x05`–`0x07`, `0x0A` | Leituras de freeze frame, DTCs, testes | Não escrevem, mas estão **fora de escopo**. A allowlist é fechada: o que não foi decidido, não entra. |
+| `0x22` | UDS `ReadDataByIdentifier` — leria PIDs proprietários da montadora | **É leitura**, mas na prática exige `ATSH` para endereçar a ECU. E o `ATSH` permite montar **qualquer** quadro CAN, inclusive de escrita. Liberar um para ganhar o outro trocaria uma garantia estrutural por disciplina. Fora por decisão, não por esquecimento. |
+| `0x2E`, `0x31`, `0x3E` | Serviços UDS: escrever memória, rodar rotinas, manter sessão | Podem reprogramar módulos. |
+
+### A diferença entre este projeto e um scanner profissional
+
+Um scanner profissional **limpa** códigos e **comanda** atuadores. O Kanri lê
+tudo o que o carro expõe e **não altera nada** — inclusive os códigos
+permanentes (`0x0A`), que existem justamente para resistir ao `0x04` e só
+somem quando a própria ECU confirma que o defeito acabou.
+
+Para um aparelho que vai ficar **instalado no carro em caráter permanente**,
+isso não é limitação: é o que garante que ele nunca apague um histórico de
+falha por acidente.
 
 ### Como a regra é imposta — não por confiança, por código
 
@@ -43,8 +69,19 @@ tabela. Defesa em profundidade: se a barreira de modo falhar, esta segura.
 
 **Camada 3 — `test/test_safety_guard/`**
 Um teste percorre **todos os 256** valores possíveis de modo e exige que
-apenas `0x01` e `0x09` passem. Outro teste varre a tabela de PIDs e falha se
-alguém acrescentar uma entrada com modo de escrita.
+passem exatamente os oito de leitura — nem um a mais. A lista esperada está
+escrita no teste de forma **independente da implementação**: mudar
+`is_read_only_mode()` sem tocar no teste faz o CI falhar. É a decisão mais
+importante do projeto, e não deve ser possível alterá-la em silêncio.
+
+Outro teste varre a tabela de PIDs e falha se alguém acrescentar uma entrada
+com modo de escrita.
+
+**Camada 4 — auditoria em tempo de execução**
+O `ObdClient` registra cada comando pouco antes de ele ir para o transporte
+(`[audit] -> 010C`). Quem está com o carro na frente não vê os testes — vê o
+log. O registro é completo por construção: `write_command()` é o único ponto
+do firmware que escreve no transporte.
 
 > Consequência prática: se alguém — você daqui a seis meses, um colaborador,
 > ou uma IA numa sessão futura — tentar habilitar o Modo 04, o CI fica

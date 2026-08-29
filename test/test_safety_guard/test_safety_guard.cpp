@@ -72,17 +72,79 @@ void test_modos_uds_de_escrita_sao_bloqueados(void) {
 }
 
 // Exaustivo, nao por amostragem: TODOS os 256 valores possiveis de modo.
-// So 0x01 e 0x09 passam da primeira barreira. Um teste como este nao pode ser
-// enganado por um exemplo esquecido.
-void test_todos_os_outros_254_modos_sao_bloqueados(void) {
+//
+// A lista de permitidos cresceu (agora inclui os modos de codigo de falha e
+// freeze frame), mas a REGRA nao mudou: so passa o que apenas LE. Este teste
+// e o que garante que ampliar escopo nao virou ampliar permissao — se alguem
+// acrescentar um modo de escrita a is_read_only_mode(), ele falha.
+void test_somente_os_modos_de_leitura_passam(void) {
+  // Os oito permitidos, escritos aqui de forma independente da implementacao:
+  // se a lista do safety.h mudar, este teste tem de ser mudado junto, de
+  // proposito. E a decisao mais importante do projeto; nao deve ser possivel
+  // altera-la sem tocar num teste.
+  const int permitidos[] = {0x01, 0x02, 0x03, 0x05, 0x06, 0x07, 0x09, 0x0A};
+
+  int liberados = 0;
   for (int mode = 0; mode <= 0xFF; ++mode) {
-    if (mode == 0x01 || mode == 0x09) continue;
-    const RequestVerdict verdict =
-        check_obd_request(static_cast<std::uint8_t>(mode), 0x0C);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(
-        static_cast<int>(RequestVerdict::ForbiddenMode),
-        static_cast<int>(verdict), "um modo de escrita passou pelo portao");
+    bool esperado_ok = false;
+    for (const int p : permitidos) {
+      if (mode == p) esperado_ok = true;
+    }
+
+    // Cada modo e testado com um PID que faca sentido para ELE: o do
+    // catalogo quando existe, 0x00 quando o modo nao leva PID.
+    const std::uint8_t m = static_cast<std::uint8_t>(mode);
+    std::uint8_t pid = 0x00;
+    if (kanri::obd::mode_takes_pid(m)) {
+      const std::uint8_t cat = kanri::obd::pid_catalog_mode(m);
+      pid = (cat == kanri::obd::kModeVehicleInfo) ? 0x02 : 0x0C;
+    }
+    const RequestVerdict v = check_obd_request(m, pid);
+
+    if (esperado_ok) {
+      ++liberados;
+      TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(RequestVerdict::Allowed),
+                                    static_cast<int>(v),
+                                    "um modo de leitura foi bloqueado");
+    } else {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(
+          static_cast<int>(RequestVerdict::ForbiddenMode), static_cast<int>(v),
+          "um modo que NAO e de leitura passou pelo portao");
+    }
   }
+  TEST_ASSERT_EQUAL_INT(8, liberados);
+}
+
+// Os modos de codigo de falha sao pedidos SOZINHOS: a ECU devolve a lista
+// inteira. Mandar PID junto seria malformado, e alguns adaptadores respondem
+// "?" a isso.
+void test_modos_de_dtc_nao_levam_pid(void) {
+  TEST_ASSERT_FALSE(kanri::obd::mode_takes_pid(0x03));
+  TEST_ASSERT_FALSE(kanri::obd::mode_takes_pid(0x07));
+  TEST_ASSERT_FALSE(kanri::obd::mode_takes_pid(0x0A));
+  TEST_ASSERT_TRUE(kanri::obd::mode_takes_pid(0x01));
+  TEST_ASSERT_TRUE(kanri::obd::mode_takes_pid(0x02));
+  TEST_ASSERT_TRUE(kanri::obd::mode_takes_pid(0x09));
+
+  // E sao aceitos sem PID, sem precisar estar no catalogo.
+  assert_verdict(RequestVerdict::Allowed, check_obd_request(0x03, 0x00));
+  assert_verdict(RequestVerdict::Allowed, check_obd_request(0x07, 0x00));
+  assert_verdict(RequestVerdict::Allowed, check_obd_request(0x0A, 0x00));
+}
+
+// A ampliacao de escopo nao pode ter afrouxado a barreira do PID nos modos
+// que a usam.
+void test_modos_com_pid_ainda_exigem_catalogo(void) {
+  assert_verdict(RequestVerdict::ForbiddenPid, check_obd_request(0x01, 0xFF));
+  // Freeze frame usa os mesmos PIDs do modo 01, entao herda o catalogo.
+  assert_verdict(RequestVerdict::ForbiddenPid, check_obd_request(0x02, 0xFF));
+  assert_verdict(RequestVerdict::Allowed, check_obd_request(0x02, 0x0C));
+  assert_verdict(RequestVerdict::ForbiddenPid, check_obd_request(0x09, 0xFF));
+
+  // Modos de teste usam numeracao propria: nao ha catalogo a consultar.
+  TEST_ASSERT_EQUAL_UINT8(0, kanri::obd::pid_catalog_mode(0x05));
+  TEST_ASSERT_EQUAL_UINT8(0, kanri::obd::pid_catalog_mode(0x06));
+  assert_verdict(RequestVerdict::Allowed, check_obd_request(0x05, 0x01));
 }
 
 // Segunda barreira: mesmo dentro do modo 01, so pedimos PIDs do catalogo.
@@ -95,6 +157,8 @@ void test_pid_fora_do_catalogo_e_bloqueado(void) {
 // Invariante da tabela: nenhuma entrada de obd_pid.h pode usar um modo de
 // escrita. Protege contra alguem acrescentar {0x04, ...} na tabela.
 void test_catalogo_de_pids_contem_somente_modos_de_leitura(void) {
+  // A tabela em obd_pid.h continua restrita: ela lista o que sabemos PEDIR
+  // com PID, e isso segue sendo 0x01 e 0x09.
   for (std::size_t i = 0; i < kanri::obd::kSupportedPidCount; ++i) {
     const std::uint8_t mode = kanri::obd::kSupportedPids[i].mode;
     TEST_ASSERT_TRUE_MESSAGE(kanri::obd::is_read_only_mode(mode),
@@ -276,7 +340,9 @@ int main() {
   RUN_TEST(test_modo_04_limpar_dtcs_e_bloqueado);
   RUN_TEST(test_modo_08_controle_de_atuador_e_bloqueado);
   RUN_TEST(test_modos_uds_de_escrita_sao_bloqueados);
-  RUN_TEST(test_todos_os_outros_254_modos_sao_bloqueados);
+  RUN_TEST(test_somente_os_modos_de_leitura_passam);
+  RUN_TEST(test_modos_de_dtc_nao_levam_pid);
+  RUN_TEST(test_modos_com_pid_ainda_exigem_catalogo);
   RUN_TEST(test_pid_fora_do_catalogo_e_bloqueado);
 
   RUN_TEST(test_catalogo_de_pids_contem_somente_modos_de_leitura);

@@ -8,6 +8,54 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Escopo ampliado para todos os modos OBD2 de leitura.** Antes só `0x01` e
+  `0x09`; agora também `0x02` (freeze frame), `0x03`/`0x07`/`0x0A` (códigos de
+  falha gravados, pendentes e permanentes), `0x05` (sonda O2) e `0x06`
+  (monitores de bordo).
+
+  **A regra de segurança não mudou** — a linha nunca foi "quantos modos", e sim
+  *ler versus alterar*. Nenhum dos modos acrescentados escreve. `0x04` (limpar
+  códigos) e `0x08` (comandar atuadores) seguem proibidos, e o teste exaustivo
+  dos 256 modos foi reescrito para exigir **exatamente os oito de leitura, nem
+  um a mais**.
+
+  A lista esperada está no teste de forma **independente da implementação**:
+  mudar `is_read_only_mode()` sem tocar no teste faz o CI falhar. É a decisão
+  mais importante do projeto, e não deve ser possível alterá-la em silêncio.
+- **Decodificador de códigos de falha** (`kanri_obd/dtc`). Os dois bytes crus
+  viram `P0301`, com a letra do sistema (P/C/B/U) e os quatro dígitos.
+
+  Distingue os três estágios, que significam coisas diferentes no diagnóstico:
+  **gravado** (acendeu a luz), **pendente** (aconteceu uma vez, ainda não
+  confirmado) e **permanente** — este último existe justamente para resistir ao
+  Modo 04 e só some quando a ECU confirma que o defeito acabou.
+- O `0x22` (UDS `ReadDataByIdentifier`, que leria PIDs proprietários da
+  Mitsubishi) fica **fora por decisão registrada, não por esquecimento**: ele é
+  leitura, mas exige `ATSH` para endereçar a ECU — e o `ATSH` permite montar
+  qualquer quadro CAN, inclusive de escrita. Trocaria uma garantia estrutural
+  por disciplina.
+
+### Corrigido
+- **Leitura fora do buffer em `parse_dtc_response()`.** O campo `length` é um
+  `uint8_t` e pode dizer até 255, mas `data` tem 32 bytes. O parser garante
+  essa relação, mas a função é pública — um frame montado à mão, ou um campo
+  corrompido em memória, faria o laço ler além do vetor. Agora o tamanho é
+  preso ao buffer real, com teste.
+- **Um teste travava a suíte inteira.** Ao permitir os modos de DTC, o
+  `ObdClient` passou a de fato aguardar resposta do `FakeTransport` — que
+  nunca responde **e não avançava o relógio falso**. O laço de timeout
+  esperava para sempre: 99,9% de CPU, sem mensagem de erro.
+
+  O dublê agora adianta o relógio a cada consulta à porta, como o
+  `FakeElm327` já fazia. Um teste que **trava** é pior que um que falha: ele
+  não diz onde está o problema e segura tudo atrás dele.
+- Teste do decodificador de DTC esperava `PFFFF`, que **não existe**: o
+  primeiro dígito vem de apenas dois bits e nunca passa de 3. O código estava
+  certo; o teste é que estava errado. Acrescentada a invariante que cobra isso
+  para todas as 65.536 entradas possíveis.
+
+
+### Adicionado
 - **Lógica do mostrador de 7 segmentos** (`kanri_display/seven_seg`), para o
   painel do carro. Referência de produto: FuelTech WB-O2 Nano — um número
   grande, legível de relance.
