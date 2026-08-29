@@ -47,6 +47,8 @@ RE_RETRY = re.compile(r"\[retry\]\s+tentativa\s+(\d+),\s+proxima em\s+(\d+)\s*ms
 RE_VERSAO = re.compile(r"Kanri v(\S+)")
 # "[obd] 0C = 992.0 rpm" — uma leitura decodificada saindo do firmware.
 RE_MEDIDA = re.compile(r"\[obd\]\s+([0-9A-Fa-f]{2})\s+=\s+(-?[\d.]+)\s*(\S*)")
+# "[hb] Polling ok=123 rej=4 up=87s" — a batida periodica do firmware.
+RE_HB = re.compile(r"\[hb\]\s+(\S+)\s+ok=(\d+)\s+rej=(\d+)\s+up=(\d+)s")
 
 # Nome de cada PID. Espelha o catalogo de lib/kanri_obd/include/kanri_obd/obd_pid.h
 # — se um PID novo entrar no rodizio do firmware, acrescente aqui tambem.
@@ -147,6 +149,10 @@ class Hub:
         # Telemetria: valor atual e serie historica de cada PID.
         self.medidas: dict[str, dict] = {}
         self.series: dict[str, list] = {}
+        self.frames_ok = 0
+        self.rejeitados = 0
+        self.uptime_s = 0
+        self.ultimo_hb = 0.0
 
     def assinar(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=1000)
@@ -200,12 +206,26 @@ class Hub:
             return {
                 "agora": time.time(),
                 "estado": self.estado_fw,
+                "frames_ok": self.frames_ok,
+                "rejeitados": self.rejeitados,
+                "uptime_s": self.uptime_s,
+                "ultimo_hb": self.ultimo_hb,
                 "medidas": saida,
             }
 
     def _interpretar(self, tipo: str, texto: str) -> None:
         """Extrai o estado do firmware das linhas de log."""
         if tipo != "serial":
+            return
+        m = RE_HB.search(texto)
+        if m:
+            # A batida tambem carrega o estado: e o que permite ao painel
+            # saber onde o firmware esta mesmo entrando no meio da sessao.
+            self.estado_fw = m.group(1)
+            self.frames_ok = int(m.group(2))
+            self.rejeitados = int(m.group(3))
+            self.uptime_s = int(m.group(4))
+            self.ultimo_hb = time.time()
             return
         m = RE_ESTADO.search(texto)
         if m:
@@ -477,6 +497,10 @@ class Handler(BaseHTTPRequestHandler):
                 "tentativa": self.hub.tentativa,
                 "proximo_retry_ms": self.hub.proximo_retry_ms,
                 "versao_fw": self.hub.versao_fw,
+                "frames_ok": self.hub.frames_ok,
+                "rejeitados": self.hub.rejeitados,
+                "uptime_s": self.hub.uptime_s,
+                "ultimo_hb": self.hub.ultimo_hb,
                 "pio": achar_pio(),
                 "projeto": str(RAIZ),
             })

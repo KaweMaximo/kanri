@@ -21,11 +21,13 @@ tailwind.config = {
     },
     keyframes: {
       slidein: { '0%':{opacity:0, transform:'translateY(-4px)'}, '100%':{opacity:1, transform:'none'} },
+      bump:    { '0%':{transform:'scale(1)'}, '40%':{transform:'scale(1.6)'}, '100%':{transform:'scale(1)'} },
       breathe: { '0%,100%':{opacity:1}, '50%':{opacity:.35} },
       sweep:   { '0%':{transform:'translateX(-100%)'}, '100%':{transform:'translateX(400%)'} },
     },
     animation: {
       slidein: 'slidein .18s ease-out',
+      bump:    'bump .5s ease-out',
       breathe: 'breathe 1.4s ease-in-out infinite',
       sweep:   'sweep 1.3s ease-in-out infinite',
     },
@@ -162,6 +164,19 @@ tailwind.config = {
 
   <!-- ───────────── dashboard ───────────── -->
   <section id="painelDash" class="viz min-h-0 overflow-y-auto scroll-fino">
+    <!-- Barra de vivacidade. Com o carro parado, rotacao e velocidade ficam
+         em 0 e a tensao nao se move — sem isto, um painel correto e um painel
+         congelado sao indistinguiveis. -->
+    <div class="flex items-center gap-3 flex-wrap mb-4 text-[11px]">
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                   border border-slate-200 dark:border-base-600">
+        <span id="pulso" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+        <span id="lblVivo" class="text-slate-500">aguardando dados</span>
+      </span>
+      <span class="text-slate-400 font-mono" id="infoFw">—</span>
+      <span class="text-slate-400 font-mono ml-auto" id="infoContagem"></span>
+    </div>
+
     <div id="tiles" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"></div>
 
     <div id="semDados" class="card p-10 text-center text-slate-400">
@@ -549,6 +564,11 @@ function tileHTML(m, agora) {
     </article>`;
 }
 
+// Guarda quantas leituras cada medida tinha na atualizacao anterior. E assim
+// que sabemos que CHEGOU dado novo, mesmo quando o valor e identico — o caso
+// do carro parado, em que rotacao e velocidade ficam em 0 o tempo todo.
+const ultimaContagem = {};
+
 async function atualizarDashboard() {
   if (abaAtual !== 'dashboard') return;
   let d;
@@ -556,6 +576,38 @@ async function atualizarDashboard() {
 
   const tem = d.medidas.length > 0;
   $('semDados').classList.toggle('hidden', tem);
+
+  let chegouAlgo = false;
+  let totalLeituras = 0;
+  for (const m of d.medidas) {
+    totalLeituras += m.serie.length;
+    if (ultimaContagem[m.pid] !== undefined &&
+        m.serie.length !== ultimaContagem[m.pid]) chegouAlgo = true;
+    ultimaContagem[m.pid] = m.serie.length;
+  }
+
+  // Vivo = houve leitura nos ultimos segundos. Nao basta o valor ser recente:
+  // o que importa e se o firmware CONTINUA lendo.
+  const maisNovo = d.medidas.reduce((a, m) => Math.max(a, m.t), 0);
+  const idade = maisNovo ? d.agora - maisNovo : Infinity;
+  const vivo = idade < IDADE_MAX_S;
+
+  $('pulso').className = 'w-1.5 h-1.5 rounded-full ' +
+    (vivo ? 'bg-good shadow-[0_0_6px] shadow-good' : 'bg-bad');
+  if (chegouAlgo) {
+    $('pulso').classList.add('animate-bump');
+    setTimeout(() => $('pulso').classList.remove('animate-bump'), 500);
+  }
+  $('lblVivo').textContent = vivo
+    ? `lendo o carro — última há ${idade.toFixed(1)}s`
+    : (maisNovo ? `parou de ler há ${idade.toFixed(0)}s` : 'aguardando dados');
+  $('lblVivo').className = vivo ? 'text-good' : 'text-slate-500';
+
+  $('infoFw').textContent = d.estado && d.estado !== '—'
+    ? `${d.estado} · ${d.frames_ok} ok · ${d.rejeitados} rejeitadas · ${d.uptime_s}s no ar`
+    : '';
+  $('infoContagem').textContent = totalLeituras ? `${totalLeituras} pontos` : '';
+
   $('tiles').innerHTML = d.medidas.map(m => tileHTML(m, d.agora)).join('');
 
   document.querySelector('#tabela tbody').innerHTML = d.medidas.map(m => {
@@ -633,7 +685,17 @@ $('btTema').onclick = () => {
   try { localStorage.setItem('kanri-tema', raiz.classList.contains('dark') ? 'dark' : 'light'); } catch {}
 };
 
-conectar(); status(); setInterval(status, 1000);
+conectar();
+status();
+setInterval(status, 1000);
+
+// O dashboard tem seu proprio timer. Sem ele, os tiles so se atualizavam ao
+// trocar de aba — pareciam corretos e congelados ao mesmo tempo.
+setInterval(atualizarDashboard, 1000);
+
+let abaSalva = 'dashboard';
+try { abaSalva = localStorage.getItem('kanri-aba') || 'dashboard'; } catch {}
+trocarAba(abaSalva);
 </script>
 </body>
 </html>

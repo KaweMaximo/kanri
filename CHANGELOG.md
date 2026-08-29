@@ -7,6 +7,64 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+> **Primeira leitura real de um veículo.** Em 29/08/2026 o Kanri conectou ao
+> ELM327 de um Mitsubishi Lancer 2.0 2014 e leu o motor em funcionamento:
+> 933–968 rpm em marcha lenta, temperatura subindo de 46 °C a 75 °C, tensão de
+> 14,2–14,4 V com o alternador carregando (contra 12,1 V só na bateria),
+> borboleta em 13,3 % e velocidade em 0 km/h.
+>
+> A auditoria de barramento registrou, em 30 s de operação: 224 comandos,
+> **todos de leitura**, e **zero comandos de escrita**.
+
+### Adicionado
+- **Dashboard de telemetria** no Kanri Console, em aba própria. Um *stat tile*
+  por medida, com valor grande, faixa mín/máx e sparkline do histórico.
+
+  Rotação, temperatura e tensão têm escalas incompatíveis — juntá-las num
+  gráfico exigiria dois eixos verticais, que distorcem a comparação. A forma
+  correta é *small multiples*: cada medida no seu próprio gráfico, com a mesma
+  cor de série.
+
+  A cor só carrega significado na temperatura, e **nunca sozinha**: cada faixa
+  vem com rótulo textual (`normal`, `aquecendo`, `atenção`, `crítico`), porque
+  em modo claro o amarelo de aviso fica abaixo de 3:1 de contraste. Há também
+  tabela com os números exatos.
+- **Barra de vivacidade** no dashboard. Com o carro parado, rotação e
+  velocidade ficam em 0 e a tensão não se move — sem um indicador de "chegou
+  leitura nova", um painel correto e um painel congelado são indistinguíveis.
+- **Batida periódica do firmware** (`[hb]`) a cada 3 s, com estado e
+  contadores. As linhas `[estado]` só aparecem numa transição, então quem
+  abrisse o painel no meio de uma sessão estável não saberia onde o firmware
+  estava.
+- **Auditoria de barramento**: cada comando é registrado como `[audit] -> 010C`
+  pouco antes de ir para o transporte. A garantia read-only já era imposta por
+  `safety.h` e testada nos 256 modos, mas quem está com o carro na frente vê o
+  log, não os testes. O registro é completo por construção — `write_command()`
+  é o único ponto do firmware que escreve no transporte.
+- **Conexão direta por MAC**, dispensando a varredura: **1,5 s contra 32 s**,
+  medido no carro. O ELM327 foi medido a −80/−90 dBm, no limite da detecção, e
+  a varredura do ESP32 não o encontrava; a conexão direta funciona porque não
+  depende de captar o anúncio no intervalo certo.
+
+### Corrigido
+- **Loop de reboot ao conectar.** `BluetoothSerial::connect()` bloqueia até
+  ~10 s e a sequência AT outro tanto; o watchdog é de 8 s. O aparelho achava o
+  adaptador e reiniciava antes de conversar com ele. Operações longas e
+  conhecidas passam a rodar fora da vigilância do watchdog, de forma
+  cirúrgica — afrouxá-lo para 20 s enfraqueceria a proteção o tempo todo.
+- **A legenda do motivo do reset estava errada**, e apontou para a causa
+  errada durante a depuração: o código 6 é `ESP_RST_TASK_WDT`, não brownout
+  (que é 9).
+- **O comando `timeout` não fazia nada**: o `elm_timeout_ms` nunca chegava ao
+  `ObdClient`. Um ajuste que o usuário faz e que não muda nada é pior do que
+  não existir.
+- **A primeira leitura falhava com `STOPPED`.** Com `ATSP0`, a primeira
+  requisição não é só uma leitura: o ELM327 precisa *descobrir* o protocolo do
+  carro, testando um a um. A primeira leitura após conectar agora tem prazo
+  próprio.
+- **O dashboard não se atualizava sozinho** — só ao trocar de aba. Faltava o
+  timer.
+
 ### Adicionado
 - **Descoberta de PIDs suportados** (`kanri_obd/pid_support`). O catálogo em
   `obd_pid.h` é o que o Kanri *sabe pedir* — não é o que o Lancer *sabe

@@ -78,6 +78,15 @@ constexpr std::uint32_t kScanMs = 5000;
 // Uma resposta ruim isolada e rotina; cinco seguidas nao sao.
 constexpr std::uint8_t kMaxFalhasSeguidas = 5;
 
+// De quanto em quanto tempo o firmware repete o estado atual.
+//
+// As linhas [estado] so aparecem numa TRANSICAO. Quem abre o painel no meio
+// de uma sessao estavel — o firmware ja em Polling ha minutos — nao veria
+// nenhuma delas, e ficaria sem saber em que estado o aparelho esta.
+// Esta batida resolve isso, e de quebra prova que o loop continua girando
+// mesmo quando nenhum valor muda (motor desligado, carro parado).
+constexpr std::uint32_t kHeartbeatMs = 3000;
+
 // --- Adaptadores de hardware (as escolhas concretas da v0.1) --------------
 kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
@@ -106,6 +115,7 @@ std::uint32_t g_state_since_ms = 0;
 /// Quando a varredura atual comecou. Sem isso nao ha como saber a hora de
 /// encerrar um scan que roda em outra task.
 std::uint32_t g_scan_since_ms = 0;
+std::uint32_t g_last_heartbeat_ms = 0;
 
 /// Linha sendo digitada no console serial.
 char g_linha[kanri::config::kMaxCommandLen + 1];
@@ -517,6 +527,20 @@ void ler_console() {
   }
 }
 
+/// Repete o estado atual de tempos em tempos.
+void heartbeat_if_due() {
+  const std::uint32_t agora = g_clock.now_ms();
+  if (kanri::core::elapsed_ms(agora, g_last_heartbeat_ms) < kHeartbeatMs) {
+    return;
+  }
+  g_last_heartbeat_ms = agora;
+  Serial.printf("[hb] %s ok=%u rej=%u up=%us\n",
+                kanri::core::to_string(g_state),
+                static_cast<unsigned>(g_telemetry.frames_ok),
+                static_cast<unsigned>(g_obd.rejected_count()),
+                static_cast<unsigned>(agora / 1000U));
+}
+
 void render_if_due() {
   const std::uint32_t now = g_clock.now_ms();
   if (kanri::core::elapsed_ms(now, g_last_render_ms) < kRenderIntervalMs) {
@@ -735,6 +759,7 @@ void loop() {
   }
 
   ler_console();
+  heartbeat_if_due();
   atualizar_led();
   render_if_due();
 
