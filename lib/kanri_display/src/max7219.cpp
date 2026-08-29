@@ -190,6 +190,19 @@ constexpr const char* kEsperaDigito[] = {
 
 }  // namespace
 
+std::uint8_t digit_register(std::size_t reading_position) {
+  // Fora da faixa cai no ultimo digito em vez de escrever num registrador
+  // qualquer: os enderecos vizinhos sao DecodeMode, Intensity e Shutdown, e
+  // escrever neles por acidente apaga ou reconfigura o mostrador inteiro.
+  if (reading_position >= kSegDigits) reading_position = kSegDigits - 1;
+
+  const std::size_t offset = kDigit0IsLeftmost
+                                 ? reading_position
+                                 : (kSegDigits - 1 - reading_position);
+  return static_cast<std::uint8_t>(
+      static_cast<std::uint8_t>(Max7219Reg::Digit0) + offset);
+}
+
 bool seg_test_step(std::size_t index, SegTestStep* out) {
   if (out == nullptr || index >= kSegTestSteps) return false;
 

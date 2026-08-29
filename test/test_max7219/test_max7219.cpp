@@ -393,6 +393,46 @@ void test_todo_rotulo_do_catalogo_e_desenhavel(void) {
 }
 
 // ---------------------------------------------------------------------------
+//  Mapeamento de digitos — a orientacao da fiacao
+// ---------------------------------------------------------------------------
+
+// REGRESSAO — encontrado na bancada em 29/08/2026.
+//
+// Para exibir "18.3" era preciso digitar `seg 38.1`: o mostrador saia
+// espelhado. O ponto decimal acompanhava o digito certo, o que descartou a
+// fonte e apontou direto para o mapeamento posicao -> registrador.
+void test_posicao_zero_e_o_digito_da_esquerda(void) {
+  TEST_ASSERT_EQUAL_HEX8(static_cast<std::uint8_t>(Max7219Reg::Digit0),
+                         kanri::display::digit_register(0));
+  TEST_ASSERT_EQUAL_HEX8(static_cast<std::uint8_t>(Max7219Reg::Digit2),
+                         kanri::display::digit_register(kSegDigits - 1));
+}
+
+// Duas posicoes no mesmo registrador apagariam um digito em silencio: uma
+// escrita sobrescreveria a outra e o mostrador ficaria com um digito preso.
+void test_cada_posicao_vai_para_um_registrador_diferente(void) {
+  for (std::size_t a = 0; a < kSegDigits; ++a) {
+    for (std::size_t b = a + 1; b < kSegDigits; ++b) {
+      TEST_ASSERT_NOT_EQUAL(kanri::display::digit_register(a),
+                            kanri::display::digit_register(b));
+    }
+  }
+}
+
+// Os enderecos vizinhos de Digit0..Digit7 sao DecodeMode, Intensity e
+// Shutdown. Escrever num deles por engano nao acende digito errado: apaga ou
+// reconfigura o mostrador inteiro.
+void test_mapeamento_nunca_sai_da_faixa_dos_digitos(void) {
+  for (std::size_t i = 0; i < kSegDigits + 5; ++i) {
+    const std::uint8_t reg = kanri::display::digit_register(i);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT8(
+        static_cast<std::uint8_t>(Max7219Reg::Digit0), reg);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT8(
+        static_cast<std::uint8_t>(Max7219Reg::Digit0) + kSegDigits - 1, reg);
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Autoteste
 // ---------------------------------------------------------------------------
 
@@ -527,6 +567,10 @@ int main(int, char**) {
   RUN_TEST(test_pisca_metade_do_ciclo_aceso);
   RUN_TEST(test_periodo_zero_nao_pisca);
   RUN_TEST(test_pisca_continua_apos_a_virada_do_contador);
+
+  RUN_TEST(test_posicao_zero_e_o_digito_da_esquerda);
+  RUN_TEST(test_cada_posicao_vai_para_um_registrador_diferente);
+  RUN_TEST(test_mapeamento_nunca_sai_da_faixa_dos_digitos);
 
   RUN_TEST(test_autoteste_recusa_indice_invalido);
   RUN_TEST(test_autoteste_comeca_com_tudo_aceso);

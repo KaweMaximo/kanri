@@ -63,14 +63,11 @@ void Max7219Display::render(const kanri::display::SegFrame& frame) {
     return;
   }
 
-  // digitos[0] e o da ESQUERDA na leitura. O Digit0 do chip e o da DIREITA
-  // na ligacao deste mostrador — dai a inversao. Se o painel sair espelhado,
-  // e ESTA linha que muda, e so ela.
+  // digitos[0] e o da ESQUERDA na leitura. Qual registrador do chip aciona
+  // esse digito depende da fiacao, e a resposta mora em digit_register() —
+  // funcao pura, com teste. Ver kanri_display/max7219.h.
   for (std::size_t i = 0; i < kanri::display::kSegDigits; ++i) {
-    const std::uint8_t reg =
-        static_cast<std::uint8_t>(kanri::display::Max7219Reg::Digit0) +
-        static_cast<std::uint8_t>(kanri::display::kSegDigits - 1 - i);
-    escrever({reg, digitos[i]});
+    escrever({kanri::display::digit_register(i), digitos[i]});
   }
 }
 
@@ -78,12 +75,10 @@ void Max7219Display::render_raw(const std::uint8_t* digits, std::size_t count) {
   if (!pronto_ || digits == nullptr) return;
   if (count > kanri::display::kSegDigits) count = kanri::display::kSegDigits;
 
-  // Mesma inversao de render(): digits[0] e o da esquerda na leitura.
+  // Mesmo mapeamento de render(), pela mesma funcao — nao por uma copia da
+  // conta, que e como uma das duas fica para tras numa correcao.
   for (std::size_t i = 0; i < count; ++i) {
-    const std::uint8_t reg =
-        static_cast<std::uint8_t>(kanri::display::Max7219Reg::Digit0) +
-        static_cast<std::uint8_t>(kanri::display::kSegDigits - 1 - i);
-    escrever({reg, digits[i]});
+    escrever({kanri::display::digit_register(i), digits[i]});
   }
 }
 
