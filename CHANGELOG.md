@@ -8,6 +8,22 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Descoberta de PIDs suportados** (`kanri_obd/pid_support`). O catálogo em
+  `obd_pid.h` é o que o Kanri *sabe pedir* — não é o que o Lancer *sabe
+  responder*. Agora perguntamos à ECU, pelos PIDs `0x00`, `0x20` e `0x40`, e
+  o rodízio de leitura pula o que ela não implementa.
+
+  Sem isso, o firmware pede PIDs inexistentes e recebe `NO DATA` a cada ciclo.
+  Não quebra nada — o parser trata —, mas desperdiça banda do barramento: num
+  rodízio de 5 PIDs, um PID inútil custa 20% das leituras.
+
+  Os blocos são encadeados: o último bit de cada um diz se vale perguntar o
+  próximo, e parar quando ele está desligado economiza duas consultas em toda
+  partida. Se a ECU não responder ao mapa, seguimos com o catálogo completo —
+  melhor tentar e receber alguns `NO DATA` do que não ler nada.
+
+  O mapa é esquecido ao perder o link: a próxima conexão pode ser outro carro,
+  e herdar o mapa anterior faria o firmware pular PIDs que existem.
 - **Dashboard de verdade** (v0.3 parcial). `build_frame()` deixa de ser
   esqueleto e monta quatro telas: **Splash** (nome e versão), **Connecting**
   (etapa atual e — importante — *quem* estamos procurando, porque nome

@@ -37,6 +37,7 @@
 #include "kanri_core/version.h"
 #include "kanri_obd/obd_client.h"
 #include "kanri_obd/pid_decoder.h"
+#include "kanri_obd/pid_support.h"
 #include "kanri_display/view_model.h"
 
 namespace {
@@ -84,6 +85,7 @@ kanri::hal::NvsConfigStore g_config_store;
 kanri::hal::BtSerialTransport g_transport("Kanri");
 kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
 kanri::obd::ObdClient g_obd(g_transport, g_clock);
+kanri::obd::PidSupport g_suporte;
 
 // --- Estado da aplicacao ---------------------------------------------------
 //  Objetos globais com tempo de vida estatico, sem `new` em lugar nenhum.
@@ -138,6 +140,9 @@ void dispatch(kanri::core::AppEvent event) {
   if (previous == kanri::core::AppState::Polling &&
       g_state != kanri::core::AppState::Polling) {
     kanri::core::invalidate_all(g_telemetry);
+    // Esquece o mapa de suporte: a proxima conexao pode ser outro carro, e
+    // herdar o mapa do anterior faria o firmware pular PIDs que existem.
+    g_suporte.reset();
   }
 
   if (g_state == kanri::core::AppState::Degraded) {
@@ -228,6 +233,57 @@ std::size_t g_rodizio_idx = 0;
 std::uint32_t g_last_poll_ms = 0;
 std::uint8_t g_falhas_seguidas = 0;
 
+/// Pergunta a ECU quais PIDs ela implementa.
+///
+/// Sem isto, o firmware pede PIDs que este motor nao tem e recebe "NO DATA"
+/// em cada ciclo. Nao quebra nada — o parser trata —, mas desperdica tempo do
+/// barramento: num rodizio de 5 PIDs, um PID inutil custa 20% da banca.
+///
+/// Os blocos sao encadeados: o ultimo bit de cada um diz se vale perguntar o
+/// proximo. Parar quando ele esta desligado economiza consultas em toda
+/// partida.
+void descobrir_pids() {
+  g_suporte.reset();
+
+  std::uint8_t base = kanri::obd::kSupportPid0;
+  while (base != 0) {
+    const auto frame = g_obd.read_pid(0x01, base);
+    if (!frame.ok()) {
+      Serial.printf("[obd] mapa de suporte %02X indisponivel: %s\n", base,
+                    kanri::obd::to_string(frame.status));
+      break;
+    }
+    if (!g_suporte.apply_block(base, frame.data, frame.length)) {
+      Serial.printf("[obd] mapa de suporte %02X malformado\n", base);
+      break;
+    }
+    if (!g_suporte.has_next_block(base)) break;
+    base = kanri::obd::next_support_pid(base);
+  }
+
+  if (!g_suporte.any_block_applied()) {
+    // A ECU nao respondeu ao mapa. Seguimos com o catalogo inteiro: e melhor
+    // tentar e receber alguns "NO DATA" do que nao ler nada.
+    Serial.println(F("[obd] sem mapa de suporte — usando o catalogo completo"));
+    return;
+  }
+
+  Serial.printf("[obd] a ECU declara %u PIDs suportados\n",
+                static_cast<unsigned>(g_suporte.count()));
+  for (std::size_t i = 0; i < kRodizioLen; ++i) {
+    Serial.printf("[obd]   %02X %s\n", kRodizio[i].pid,
+                  g_suporte.supports(kRodizio[i].pid) ? "sim" : "NAO — sera pulado");
+  }
+}
+
+/// Este PID entra no rodizio?
+///
+/// Enquanto nao houver mapa, tudo entra: o catalogo e a melhor aposta
+/// disponivel. Com mapa, so o que a ECU declarou.
+bool vale_pedir(std::uint8_t pid) {
+  return !g_suporte.any_block_applied() || g_suporte.supports(pid);
+}
+
 /// Le UM pid do rodizio, respeitando o intervalo configurado.
 ///
 /// Uma resposta ruim isolada e rotina no barramento e nao derruba o link. Mas
@@ -241,6 +297,15 @@ void ler_um_pid() {
     return;
   }
   g_last_poll_ms = agora;
+
+  // Avanca ate um PID que valha a pena pedir. O limite de voltas evita laco
+  // infinito caso a ECU nao suporte nenhum do rodizio.
+  std::size_t tentativas = 0;
+  while (tentativas < kRodizioLen && !vale_pedir(kRodizio[g_rodizio_idx].pid)) {
+    g_rodizio_idx = (g_rodizio_idx + 1) % kRodizioLen;
+    ++tentativas;
+  }
+  if (tentativas >= kRodizioLen) return;  // nenhum PID do rodizio e suportado
 
   const auto& alvo = kRodizio[g_rodizio_idx];
   g_rodizio_idx = (g_rodizio_idx + 1) % kRodizioLen;
@@ -542,6 +607,7 @@ void loop() {
       const auto frame = g_obd.read_pid(0x01, 0x0C);
       if (frame.ok()) {
         Serial.println(F("[obd] ECU respondeu — barramento vivo"));
+        descobrir_pids();
         dispatch(kanri::core::AppEvent::VehicleLinkUp);
       } else {
         Serial.printf("[obd] sem resposta da ECU: %s\n",
