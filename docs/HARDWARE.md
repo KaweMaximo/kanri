@@ -316,8 +316,10 @@ Nenhum destes é opcional numa instalação permanente:
 
 ### De onde tirar o 5 V do MAX7219
 
-A ideia de aproveitar a mesma alimentação da placa está certa — mas **qual dos
-dois pinos** muda o resultado por completo.
+**Pelo `VIN` — decisão do Jose, e está correta.** As contas abaixo existem
+para registrar *por que* ela é a certa, não para questioná-la: a diferença
+entre os dois pinos de alimentação da placa muda o resultado por completo, e
+vale ter isso escrito para quem montar depois.
 
 | Origem | Funciona? | Por quê |
 |---|---|---|
@@ -347,7 +349,7 @@ a 500 mA ele já dissipa 0,85 W num encapsulamento SOT-223 sem dissipador, e a
 o ESP32 reiniciando quando o display acende, algo que parece bug de firmware e
 não é.
 
-#### O caminho certo
+#### O caminho certo — o `VIN`, como o Jose indicou
 
 ```
         LM2596HV (buck)
