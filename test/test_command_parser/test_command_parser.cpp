@@ -380,7 +380,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetTimeout, CommandAction::SetBrightness,
       CommandAction::SetUnits, CommandAction::ReadDtc,
       CommandAction::SegTest, CommandAction::SegShow,
-      CommandAction::SegAuto,
+      CommandAction::SegAuto, CommandAction::PotStatus,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));

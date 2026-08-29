@@ -89,6 +89,9 @@ constexpr Entrada kTabela[] = {
     {"mostrar",    CommandAction::SegShow,       true,  false},
     // Solta o mostrador: volta a mostrar a telemetria do carro.
     {"auto",       CommandAction::SegAuto,       false, false},
+    // Leitura crua do ADC: e o unico jeito de conferir a fiacao do
+    // potenciometro, ja que um pino solto tambem "le" alguma coisa.
+    {"pot",        CommandAction::PotStatus,     false, false},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -266,6 +269,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::SegTest:
     case CommandAction::SegShow:
     case CommandAction::SegAuto:
+    case CommandAction::PotStatus:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -293,6 +297,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::SegTest:       return "SegTest";
     case CommandAction::SegShow:       return "SegShow";
     case CommandAction::SegAuto:       return "SegAuto";
+    case CommandAction::PotStatus:     return "PotStatus";
   }
   return "Unknown";
 }
@@ -334,6 +339,7 @@ const char* const* help_lines() {
       "  teste              autoteste: acende segmento por segmento",
       "  seg <texto>        escreve e SEGURA a tela (ex.: seg 13.8, seg 8--)",
       "  auto               devolve a tela para a telemetria",
+      "  pot                leitura crua do potenciometro de brilho",
       nullptr,
   };
   return kAjuda;

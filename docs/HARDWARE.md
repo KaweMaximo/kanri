@@ -497,6 +497,73 @@ E o modo de falha é traiçoeiro: exceder o máximo **não queima na hora**,
 degrada. Funciona na bancada, funciona uma semana no carro, e depois o pino
 morre sem explicação.
 
+## Potenciômetro de brilho
+
+Decisão de Jose Rodrigues (29/08/2026): pernas externas em **3,3 V** e **GND**,
+cursor no **GPIO 36 (`VP`)**.
+
+```
+3,3 V ──[ perna 1 ]
+         [ cursor  ] ──► GPIO 36 (VP)
+GND   ──[ perna 3 ]
+```
+
+Valor sugerido: **10 kΩ**. Menos desperdiça corrente ligado direto no trilho;
+muito mais e a impedância atrapalha o ADC.
+
+### Por que o GPIO 36 é o pino certo
+
+| Motivo | Consequência de errar |
+|---|---|
+| É do **ADC1** | O `ADC2` não funciona com o rádio ativo. Um potenciômetro no ADC2 pararia de responder assim que o Bluetooth conectasse — e funcionaria perfeitamente na bancada antes disso |
+| É ***input-only*** | Não desperdiça um pino capaz de acionar coisa. É justamente um dos que não serviam para o display |
+
+Do ADC1 e disponíveis nesta placa: **32, 33, 34, 35, `VP` (36), `VN` (39)**.
+
+### Os três modos de falha, e o que faz cada um
+
+Um botão giratório no ADC parece trivial e não é. São **cinco níveis** (decisão
+do Kawe) mais dois filtros, e cada peça resolve um problema diferente:
+
+| Problema | Sintoma no painel | O que resolve |
+|---|---|---|
+| ADC do ESP32 é ruidoso (±40 contagens parado) | mostrador **pulsa** com o botão imóvel | **5 níveis**: cada faixa tem ~819 contagens, muito acima do ruído |
+| Ruído exatamente na fronteira entre faixas | pisca entre **dois** brilhos, só numa posição | **histerese** de 150 contagens para sair da faixa |
+| GPIO 36 sem potenciômetro ligado | brilho **passeia sozinho** | **6 leituras** concordando, ancoradas na primeira |
+
+O terceiro é o menos óbvio. O GPIO 36 não tem *pull-up* interno: sem o fio,
+vira antena. E o discriminador não é o valor lido — é a **estabilidade**. Um
+potenciômetro é fonte de baixa impedância e oscila pouco; um pino solto varre
+a escala inteira entre amostras.
+
+> ⚠️ **Não faça média das leituras.** Parece melhoria e é o contrário: a média
+> aproxima um pino solto do meio da escala, e aí lixo passa a parecer posição
+> estável. O filtro precisa **ver** o ruído para poder rejeitá-lo.
+
+### Os cinco níveis não são lineares
+
+```
+nível 1 →   3 %      nível 4 →  60 %
+nível 2 →  12 %      nível 5 → 100 %
+nível 3 →  30 %
+```
+
+A percepção de brilho é aproximadamente logarítmica. `20/40/60/80/100`
+desperdiçaria três passos na faixa clara — justamente onde a diferença menos
+aparece — e não deixaria nenhum ajuste útil para dirigir à noite.
+
+O nível 1 em 3 % **não apaga**: é o passo mais fraco do MAX7219 (1/32 do
+ciclo). Um nível que apagasse o painel seria indistinguível de defeito.
+
+### Conferindo a fiação
+
+```
+pot
+```
+
+Mostra a leitura crua do ADC. Gire de ponta a ponta: deve ir de **~0 a ~4095**.
+Se o número pular sem você girar, o cursor está solto.
+
 ## Instalação permanente no veículo
 
 O objetivo é o aparelho ficar **ligado direto no carro**, acendendo com a
