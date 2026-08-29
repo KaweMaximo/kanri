@@ -8,8 +8,14 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
-- **Mapa de pinos da ESP32 DevKit V1 (30 pinos)** em `docs/HARDWARE.md`, com a
-  alocação completa para acionar o display de 7 segmentos direto pelos GPIOs.
+- **Mapa de pinos da ESP32 DevKit V1 (30 pinos)** em `docs/HARDWARE.md`, com o
+  acionamento do display pelo MAX7219 em três fios (`DIN` 23, `CLK` 18,
+  `LOAD` 5) como caminho escolhido, e a alocação direta pelos GPIOs registrada
+  como plano B.
+
+  Registra que **`LOAD` e `CS` são o mesmo pino** — o 12 chama-se `LOAD` no
+  MAX7219 e `CS` no MAX7221. Quem lê "DIN, LOAD e CS" como três fios esquece o
+  `CLK`, e o display fica apagado sem dar erro nenhum.
 
   Separa o que **não pode** ser usado por motivo físico do que é só
   preferência: `RX0`/`TX0` derrubam o console, o `D12` impede o boot, e
