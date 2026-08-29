@@ -390,6 +390,86 @@ O esquema não fixa quais GPIOs. Usando o VSPI padrão do ESP32:
 
 Evite GPIO 6–11 (ligados à flash) e GPIO 0, 2, 12 e 15 (afetam o boot).
 
+## Mapa de pinos — ESP32 DevKit V1 (30 pinos)
+
+Placa confirmada na bancada em 29/08/2026, pela serigrafia: **DevKit V1 de 30
+pinos**, módulo ESP32-WROOM-32. As duas fileiras, como vêm impressas:
+
+```
+ 3V3  GND  D15  D2  D4  RX2  TX2  D5  D18  D19  D21  RX0  TX0  D22  D23
+ VIN  GND  D13  D12  D14  D27  D26  D25  D33  D32  D35  D34  VN   VP   EN
+```
+
+### 🔴 Não use — por motivo físico, não por preferência
+
+| Pino | GPIO | Por quê |
+|---|---|---|
+| `RX0` / `TX0` | 3 / 1 | Console USB. Usar aqui **derruba o painel Kanri** e a gravação |
+| `D34`, `D35` | 34, 35 | **Input-only.** Não têm driver de saída — não acendem LED nunca |
+| `VP`, `VN` | 36, 39 | **Input-only**, pelo mesmo motivo |
+| `D12` | 12 | Strapping `MTDI`. **HIGH no boot** faz o chip procurar flash de 1,8 V e **não iniciar** |
+
+Os quatro *input-only* são a pegadinha cruel: `pinMode(34, OUTPUT)` **compila,
+roda e não dá erro nenhum**. O pino simplesmente nunca muda de nível.
+
+### 🟡 Use com ressalva
+
+| Pino | GPIO | Ressalva |
+|---|---|---|
+| `D15` | 15 | Strapping `MTDO`. LOW no boot silencia o log — você perde diagnóstico |
+| `D5` | 5 | Strapping com pull-up interno. Um LED aqui pisca durante o boot |
+| `D2` | 2 | Já é o **LED de status** do firmware (e é strapping) |
+
+### ✅ Alocação proposta — acionamento direto
+
+Restam 14 GPIOs plenamente livres e são necessários 11. Cabe com folga.
+
+| Função | GPIO | Onde fica |
+|---|---|---|
+| Segmento `a` | 13 | linha de baixo |
+| Segmento `b` | 14 | linha de baixo |
+| Segmento `c` | 27 | linha de baixo |
+| Segmento `d` | 26 | linha de baixo |
+| Segmento `e` | 25 | linha de baixo |
+| Segmento `f` | 33 | linha de baixo |
+| Segmento `g` | 32 | linha de baixo |
+| Ponto decimal `dp` | 4 | linha de cima |
+| Dígito 1 (comum) | 19 | linha de cima |
+| Dígito 2 (comum) | 21 | linha de cima |
+| Dígito 3 (comum) | 22 | linha de cima |
+| Botão | 17 | `TX2`, com `INPUT_PULLUP` |
+| LED de status | 2 | já no firmware |
+
+Os sete segmentos `a`–`g` ficam **contíguos na linha de baixo** (13, 14, 27,
+26, 25, 33, 32 — pulando o 12) e os três comuns **contíguos na de cima**. Não é
+capricho: fiação de protoboard erra por vizinhança, e um bloco contínuo é
+conferível de relance.
+
+**Reservados para o MAX7219** quando ele chegar: **23** (`DIN`), **18** (`CLK`)
+e **5** (`CS`). Ficam de fora da alocação acima de propósito, para os dois
+caminhos coexistirem na placa durante a transição.
+
+### 🔴 A corrente dos pinos de dígito
+
+Nos três pinos de **dígito comum** passa a **soma** de todos os segmentos
+acesos daquele dígito — não a corrente de um segmento.
+
+| | |
+|---|---|
+| GPIO do ESP32, recomendado | 12 mA |
+| GPIO do ESP32, **máximo absoluto** | 40 mA |
+| 8 segmentos a 6 mA (resistor de 220 Ω) | **48 mA** ❌ |
+| 8 segmentos a 1,3 mA (resistor de **1 kΩ**) | **10 mA** ✅ |
+
+Por isso, no acionamento direto, o resistor de **1 kΩ** não é escolha de
+brilho: é o que mantém o pino dentro do especificado. O display fica fraco de
+propósito. Brilho é problema do MAX7219, que faz o *sink* dos dígitos com a
+corrente dele.
+
+E o modo de falha é traiçoeiro: exceder o máximo **não queima na hora**,
+degrada. Funciona na bancada, funciona uma semana no carro, e depois o pino
+morre sem explicação.
+
 ## Instalação permanente no veículo
 
 O objetivo é o aparelho ficar **ligado direto no carro**, acendendo com a
