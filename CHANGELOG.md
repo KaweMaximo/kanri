@@ -7,8 +7,32 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Modificado
+- **Potenciômetro passou para 8 níveis e ficou 7,5× mais rápido**, sem
+  afrouxar nenhuma proteção.
+
+  O atraso de 1,2 s não vinha das confirmações — vinha do **intervalo entre
+  leituras** (`6 × 200 ms`). E o intervalo alto não comprava nada:
+  `analogRead()` custa ~100 µs, ou seja 0,5 % do tempo mesmo a 20 ms.
+
+  | | Antes | Agora |
+  |---|---|---|
+  | Níveis | 5 | **8** |
+  | Intervalo | 200 ms | **20 ms** |
+  | Confirmações | 6 | **8** |
+  | Resposta ao giro | 1200 ms | **160 ms** |
+
+  Mais rápido **e** com rejeição de pino solto mais forte. A lição vale além
+  daqui: antes de afrouxar uma proteção para ganhar velocidade, confira se a
+  lentidão vem mesmo dela.
+
+  Os oito níveis caem em oito intensidades **distintas** do MAX7219 (0, 1, 2,
+  3, 5, 7, 11, 15), com teste cobrando. Dois níveis na mesma intensidade
+  dariam duas posições do botão com brilho idêntico — lido como zona morta,
+  ou seja, defeito.
+
 ### Adicionado
-- **Potenciômetro de brilho** no GPIO 36 (`VP`), com **5 níveis** e comando
+- **Potenciômetro de brilho** no GPIO 36 (`VP`), com comando
   `pot` para conferir a fiação.
 
   Cinco e não dezesseis por decisão do Kawe, e o motivo é técnico: o ADC do

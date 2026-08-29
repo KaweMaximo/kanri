@@ -4,7 +4,7 @@ namespace kanri::display {
 namespace {
 
 /// Largura nominal de cada faixa, em contagens do ADC.
-constexpr std::uint16_t kFaixa = (kAdcMax + 1) / kKnobLevels;  // 819
+constexpr std::uint16_t kFaixa = (kAdcMax + 1) / kKnobLevels;  // 512
 
 /// A fronteira SUPERIOR da faixa `level`.
 constexpr std::uint16_t fronteira(std::uint8_t level) {
@@ -16,7 +16,8 @@ constexpr std::uint16_t fronteira(std::uint8_t level) {
 // 3 % nao apaga: e o passo mais fraco do MAX7219 (1/32 do ciclo), pensado
 // para dirigir a noite sem o painel ofuscar. 100 % e para sol direto, que e
 // a referencia do produto (FuelTech WB-O2 Nano).
-constexpr std::uint8_t kPercentuais[kKnobLevels] = {3, 12, 30, 60, 100};
+constexpr std::uint8_t kPercentuais[kKnobLevels] = {2,  5,  10, 18,
+                                                    30, 48, 72, 100};
 
 }  // namespace
 

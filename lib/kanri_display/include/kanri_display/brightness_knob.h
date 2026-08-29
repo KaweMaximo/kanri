@@ -32,7 +32,11 @@
 namespace kanri::display {
 
 /// Quantos niveis de brilho o botao oferece.
-constexpr std::uint8_t kKnobLevels = 5;
+///
+/// Oito. Com 4096 contagens, cada faixa fica com 512 — ainda MUITO acima do
+/// ruido do ADC, entao o motivo de nao usar 16 continua valendo, com o dobro
+/// de resolucao para o motorista.
+constexpr std::uint8_t kKnobLevels = 8;
 
 /// Fim de escala do ADC do ESP32 em 12 bits.
 constexpr std::uint16_t kAdcMax = 4095;
@@ -49,8 +53,10 @@ constexpr std::uint16_t kKnobHysteresis = 120;
 /// e uma fonte de baixa impedancia: parado, oscila umas +-40 contagens. Um
 /// GPIO 34 sem nada ligado varre a escala inteira entre amostras.
 ///
-/// 150 fica bem acima do ruido real e bem abaixo dos saltos de um pino solto.
-constexpr std::uint16_t kKnobMaxJitter = 150;
+/// 90 fica bem acima do ruido real (medido em +-1 na bancada do Kanri, e
+/// dimensionado para +-40 no pior caso) e bem abaixo dos saltos de um pino
+/// solto. Acompanha a largura da faixa: ~18% dela, como era com 5 niveis.
+constexpr std::uint16_t kKnobMaxJitter = 90;
 
 /// Quantas leituras seguidas precisam concordar para o nivel mudar.
 ///
@@ -58,14 +64,17 @@ constexpr std::uint16_t kKnobMaxJitter = 150;
 /// kKnobMaxJitter da PRIMEIRA delas — ancorada, nao acumulando desvio, senao
 /// um passeio aleatorio lento passaria.
 ///
-/// O numero saiu de conta, nao de chute: com ruido uniforme na escala toda, a
-/// chance de cinco leituras seguidas caberem na janela e da ordem de 2e-6 por
-/// amostra. A 5 Hz, sao anos de operacao para um falso positivo. Com o valor
-/// anterior (3), o teste de pino solto falhava em minutos — foi assim que
-/// este numero foi corrigido.
+/// O numero saiu de conta, nao de chute. Com o valor original (3), o teste de
+/// pino solto falhava em minutos de operacao simulada.
 ///
-/// Custo: 1,2 s para o brilho acompanhar o giro. Imperceptivel num botao.
-constexpr std::uint8_t kKnobConfirmations = 6;
+/// E ATENCAO ao que NAO e a causa da demora: o atraso do botao nunca veio
+/// daqui, e sim do intervalo entre leituras. Ler o ADC custa ~100 us, entao
+/// amostrar a cada 20 ms em vez de 200 ms deixou a resposta em ~160 ms —
+/// imperceptivel — e ainda permitiu SUBIR as confirmacoes de 6 para 8.
+///
+/// Mais rapido e mais seguro ao mesmo tempo: o intervalo era um custo que
+/// nao comprava nada.
+constexpr std::uint8_t kKnobConfirmations = 8;
 
 /// O nivel em que o mostrador nasce, antes de qualquer leitura valida.
 ///

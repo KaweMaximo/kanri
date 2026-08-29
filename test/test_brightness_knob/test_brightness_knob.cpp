@@ -15,6 +15,7 @@
 #include <unity.h>
 
 #include "kanri_display/brightness_knob.h"
+#include "kanri_display/max7219.h"
 
 using kanri::display::BrightnessKnob;
 using kanri::display::kAdcMax;
@@ -72,6 +73,23 @@ void test_passos_sao_mais_finos_no_escuro(void) {
   TEST_ASSERT_LESS_THAN_INT(ultimo, primeiro);
 }
 
+// CADA nivel precisa virar uma intensidade DIFERENTE no MAX7219.
+//
+// O chip tem 16 passos; nossos 8 niveis precisam cair em 8 deles, sem
+// repetir. Dois niveis na mesma intensidade dariam duas posicoes do botao com
+// brilho identico — e o motorista leria isso como zona morta do
+// potenciometro, ou seja, defeito.
+void test_cada_nivel_da_um_brilho_visivelmente_diferente(void) {
+  for (std::uint8_t a = 0; a < kKnobLevels; ++a) {
+    for (std::uint8_t b = static_cast<std::uint8_t>(a + 1); b < kKnobLevels; ++b) {
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(
+          kanri::display::intensity_from_percent(knob_level_percent(a)),
+          kanri::display::intensity_from_percent(knob_level_percent(b)),
+          "dois niveis com o mesmo brilho no chip");
+    }
+  }
+}
+
 void test_nivel_fora_da_faixa_nao_estoura(void) {
   TEST_ASSERT_EQUAL_UINT8(knob_level_percent(kKnobLevels - 1),
                           knob_level_percent(200));
@@ -124,7 +142,7 @@ void test_nivel_acompanha_o_sentido_do_giro(void) {
 
 // A ZONA MORTA: dentro da margem, a leitura nao muda de nivel.
 void test_histerese_segura_o_nivel_perto_da_fronteira(void) {
-  const std::uint16_t fronteira = 819;  // fim da faixa 0
+  const std::uint16_t fronteira = 512;  // fim da faixa 0
   TEST_ASSERT_EQUAL_UINT8(0, knob_level_for(fronteira + 10, 0));
   TEST_ASSERT_EQUAL_UINT8(0, knob_level_for(fronteira + kKnobHysteresis - 1, 0));
   TEST_ASSERT_EQUAL_UINT8(1, knob_level_for(fronteira + kKnobHysteresis + 1, 0));
@@ -176,7 +194,7 @@ void test_botao_parado_nunca_muda_o_brilho(void) {
 // nivel a cada amostra, e o painel piscaria entre dois brilhos.
 void test_ruido_exatamente_na_fronteira_nao_faz_o_painel_piscar(void) {
   BrightnessKnob k;
-  assentar(k, 700);
+  assentar(k, 400);
   const std::uint8_t estavel = k.level();
 
   std::uint32_t semente = 999;
@@ -184,7 +202,7 @@ void test_ruido_exatamente_na_fronteira_nao_faz_o_painel_piscar(void) {
   for (int i = 0; i < 5000; ++i) {
     semente = semente * 1103515245U + 12345U;
     const int ruido = static_cast<int>((semente >> 16) % 81) - 40;
-    if (k.update(static_cast<std::uint16_t>(819 + ruido))) ++mudancas;
+    if (k.update(static_cast<std::uint16_t>(512 + ruido))) ++mudancas;
   }
   TEST_ASSERT_LESS_OR_EQUAL_INT_MESSAGE(1, mudancas, "painel piscaria");
   TEST_ASSERT_LESS_OR_EQUAL_UINT8(estavel + 1, k.level());
@@ -258,6 +276,7 @@ int main(int, char**) {
   RUN_TEST(test_niveis_sobem_do_mais_fraco_ao_mais_forte);
   RUN_TEST(test_nivel_mais_fraco_ainda_acende);
   RUN_TEST(test_passos_sao_mais_finos_no_escuro);
+  RUN_TEST(test_cada_nivel_da_um_brilho_visivelmente_diferente);
   RUN_TEST(test_nivel_fora_da_faixa_nao_estoura);
 
   RUN_TEST(test_as_duas_pontas_do_curso_sao_alcancaveis);
