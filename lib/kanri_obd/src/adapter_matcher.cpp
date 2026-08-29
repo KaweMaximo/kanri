@@ -124,6 +124,45 @@ MatchOutcome select_adapter(const DiscoveredDevice* devices, std::size_t count,
   return saida;
 }
 
+bool parse_mac(const char* text, std::uint8_t out[6]) {
+  if (text == nullptr || out == nullptr) return false;
+
+  std::uint8_t bytes[6] = {};
+  std::size_t i = 0;  // posicao no texto
+
+  for (std::size_t b = 0; b < 6; ++b) {
+    if (b > 0) {
+      // Separador entre os pares. Aceita ':' e '-', que sao as duas formas
+      // em que um MAC aparece na vida real.
+      if (text[i] != ':' && text[i] != '-') return false;
+      ++i;
+    }
+    std::uint8_t valor = 0;
+    for (std::size_t d = 0; d < 2; ++d) {
+      const char c = text[i + d];
+      std::uint8_t digito;
+      if (c >= '0' && c <= '9') {
+        digito = static_cast<std::uint8_t>(c - '0');
+      } else if (c >= 'A' && c <= 'F') {
+        digito = static_cast<std::uint8_t>(c - 'A' + 10);
+      } else if (c >= 'a' && c <= 'f') {
+        digito = static_cast<std::uint8_t>(c - 'a' + 10);
+      } else {
+        return false;
+      }
+      valor = static_cast<std::uint8_t>((valor << 4) | digito);
+    }
+    bytes[b] = valor;
+    i += 2;
+  }
+
+  // Nada pode sobrar depois do sexto par: "AA:BB:CC:DD:EE:FF:00" nao e MAC.
+  if (text[i] != '\0') return false;
+
+  for (std::size_t b = 0; b < 6; ++b) out[b] = bytes[b];
+  return true;
+}
+
 const char* to_string(MatchResult result) {
   switch (result) {
     case MatchResult::Found:        return "Found";

@@ -92,6 +92,25 @@ struct MatchOutcome {
 MatchOutcome select_adapter(const DiscoveredDevice* devices, std::size_t count,
                             const char* target_name, const char* target_mac);
 
+/// Converte "AA:BB:CC:DD:EE:FF" nos 6 bytes do endereco Bluetooth.
+///
+/// POR QUE ISSO IMPORTA
+/// --------------------
+/// Conectar por MAC dispensa a varredura. E isso resolve um caso real: um
+/// adaptador com sinal fraco (dentro do carro, com o ESP32 a alguns metros)
+/// aparece de forma intermitente na varredura, ou nao aparece — mas a conexao
+/// direta ainda funciona, porque nao depende de captar o anuncio no exato
+/// intervalo em que ela acontece.
+///
+/// Medido no projeto: o adaptador respondia a -80/-90 dBm, no limite da
+/// deteccao, enquanto a varredura do ESP32 nao o encontrava.
+///
+/// Aceita separador ':' ou '-', e caixa mista.
+///
+/// @param out  6 bytes, do mais significativo para o menos.
+/// @return false se o texto nao for um MAC valido; `out` fica intocado.
+bool parse_mac(const char* text, std::uint8_t out[6]);
+
 /// Nome legivel do resultado, para log e display. Nunca devolve nullptr.
 const char* to_string(MatchResult result);
 

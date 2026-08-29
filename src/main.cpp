@@ -78,6 +78,15 @@ constexpr std::uint32_t kScanMs = 5000;
 // Uma resposta ruim isolada e rotina; cinco seguidas nao sao.
 constexpr std::uint8_t kMaxFalhasSeguidas = 5;
 
+// De quanto em quanto tempo o firmware repete o estado atual.
+//
+// As linhas [estado] so aparecem numa TRANSICAO. Quem abre o painel no meio
+// de uma sessao estavel — o firmware ja em Polling ha minutos — nao veria
+// nenhuma delas, e ficaria sem saber em que estado o aparelho esta.
+// Esta batida resolve isso, e de quebra prova que o loop continua girando
+// mesmo quando nenhum valor muda (motor desligado, carro parado).
+constexpr std::uint32_t kHeartbeatMs = 3000;
+
 // --- Adaptadores de hardware (as escolhas concretas da v0.1) --------------
 kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
@@ -106,10 +115,33 @@ std::uint32_t g_state_since_ms = 0;
 /// Quando a varredura atual comecou. Sem isso nao ha como saber a hora de
 /// encerrar um scan que roda em outra task.
 std::uint32_t g_scan_since_ms = 0;
+std::uint32_t g_last_heartbeat_ms = 0;
 
 /// Linha sendo digitada no console serial.
 char g_linha[kanri::config::kMaxCommandLen + 1];
 std::size_t g_linha_len = 0;
+
+/// Leva os tempos da configuracao para o cliente OBD.
+///
+/// Sem isto, o comando `timeout` do console nao surtia efeito nenhum: o
+/// ObdClient seguia com o valor padrao. Um ajuste que o usuario faz e que nao
+/// muda nada e pior do que nao existir.
+/// Registra no log cada comando que vai para o barramento.
+///
+/// O Kanri e read-only, e essa garantia e imposta por safety.h com teste
+/// exaustivo dos 256 modos OBD2. Mas quem esta com o carro na frente nao ve
+/// os testes — ve o log. Este registro torna a garantia OBSERVAVEL: se algum
+/// dia aparecer aqui um comando que nao seja Modo 01, Modo 09 ou um AT da
+/// allowlist, e porque algo esta errado, e da para ver na hora.
+void auditar(const char* comando) {
+  Serial.printf("[audit] -> %s\n", comando);
+}
+
+void aplicar_tempos_do_obd() {
+  kanri::obd::ObdClientConfig cfg = g_obd.config();
+  cfg.response_timeout_ms = g_settings.elm_timeout_ms;
+  g_obd.set_config(cfg);
+}
 
 /// Ponto unico de entrada de eventos na maquina de estados.
 ///
@@ -353,6 +385,50 @@ void ler_um_pid() {
 //  Aqui so lemos bytes e aplicamos o resultado.
 // ---------------------------------------------------------------------------
 
+/// Traduz esp_reset_reason(). Os valores vem de esp_system.h — copiar a
+/// legenda de cabeca e como este log ja apontou para a causa errada uma vez:
+/// o codigo 6 e TASK_WDT (watchdog de task), nao brownout, que e 9.
+const char* motivo_do_reset() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:   return "power-on (energia ligada)";
+    case ESP_RST_EXT:       return "reset externo (pino)";
+    case ESP_RST_SW:        return "software (ESP.restart)";
+    case ESP_RST_PANIC:     return "PANIC (excecao no firmware)";
+    case ESP_RST_INT_WDT:   return "WATCHDOG de interrupcao";
+    case ESP_RST_TASK_WDT:  return "WATCHDOG de task (o loop travou)";
+    case ESP_RST_WDT:       return "WATCHDOG (outro)";
+    case ESP_RST_DEEPSLEEP: return "saida de deep sleep";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT (tensao caiu)";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "desconhecido";
+  }
+}
+
+/// Executa uma operacao LONGA E CONHECIDA sem o watchdog vigiando.
+///
+/// POR QUE ISSO EXISTE
+/// -------------------
+/// BluetoothSerial::connect() bloqueia ate ~10 s esperando o pareamento, e a
+/// sequencia AT do ELM327 pode levar outro tanto. O watchdog e de 8 s: ele
+/// disparava no meio da conexao e reiniciava a placa, num LOOP — o aparelho
+/// achava o adaptador e reiniciava antes de conseguir conversar com ele.
+///
+/// A alternativa seria afrouxar o watchdog para 20 s, o que enfraqueceria a
+/// protecao no resto do tempo. Aqui dizemos, de forma cirurgica: "esta
+/// operacao especifica e demorada por natureza, nao me vigie por enquanto".
+/// O loop inteiro segue protegido.
+///
+/// A operacao ainda tem limite proprio — o BluetoothSerial e o ObdClient tem
+/// timeout interno. Isto remove a vigilancia, nao o prazo.
+template <typename F>
+auto sem_watchdog(F&& operacao) -> decltype(operacao()) {
+  esp_task_wdt_delete(nullptr);
+  const auto resultado = operacao();
+  esp_task_wdt_add(nullptr);
+  esp_task_wdt_reset();
+  return resultado;
+}
+
 void imprimir_status() {
   Serial.println(F("--- status ---"));
   Serial.printf("  estado      : %s\n", kanri::core::to_string(g_state));
@@ -421,6 +497,7 @@ void executar(const kanri::config::ParsedCommand& cmd) {
   if (kanri::config::apply_command(cmd, g_settings)) {
     Serial.printf("[cfg] %s aplicado (use 'save' para gravar)\n",
                   kanri::config::to_string(cmd.action));
+    aplicar_tempos_do_obd();
     // O alvo da varredura muda na hora: assim da para corrigir o nome e ver
     // a proxima varredura ja procurando o certo, sem reiniciar.
     g_transport.set_target(g_settings.adapter_name, g_settings.adapter_mac,
@@ -448,6 +525,20 @@ void ler_console() {
       g_linha[g_linha_len++] = static_cast<char>(c);
     }
   }
+}
+
+/// Repete o estado atual de tempos em tempos.
+void heartbeat_if_due() {
+  const std::uint32_t agora = g_clock.now_ms();
+  if (kanri::core::elapsed_ms(agora, g_last_heartbeat_ms) < kHeartbeatMs) {
+    return;
+  }
+  g_last_heartbeat_ms = agora;
+  Serial.printf("[hb] %s ok=%u rej=%u up=%us\n",
+                kanri::core::to_string(g_state),
+                static_cast<unsigned>(g_telemetry.frames_ok),
+                static_cast<unsigned>(g_obd.rejected_count()),
+                static_cast<unsigned>(agora / 1000U));
 }
 
 void render_if_due() {
@@ -492,12 +583,7 @@ void setup() {
   Serial.println();
   Serial.printf("Kanri v%s — telemetria OBD2 (SOMENTE LEITURA)\n",
                 KANRI_VERSION_STRING);
-  // Por que a placa ligou? Distinguir "liguei na tomada" de "o watchdog me
-  // reiniciou" vale ouro: um reset por watchdog e sintoma de que alguma
-  // coisa bloqueou o loop, e sem este log ele passa despercebido.
-  Serial.printf("[boot] motivo do reset: %d (1=power-on 3=software "
-                "5=deep-sleep 6=brownout 7/8/9=watchdog)\n",
-                static_cast<int>(esp_reset_reason()));
+  Serial.printf("[boot] motivo do reset: %s\n", motivo_do_reset());
   Serial.println(F("Alvo: Mitsubishi Lancer 2.0 2014 (4B11)"));
   Serial.println(F("Digite 'ajuda' para configurar pelo serial."));
 
@@ -508,6 +594,8 @@ void setup() {
                 static_cast<unsigned>(kWatchdogTimeoutSec));
 
   g_settings = kanri::config::default_settings();
+
+  g_obd.set_audit_sink(auditar);
 
   g_led.begin();
   Serial.printf("[led] status no GPIO %u\n", static_cast<unsigned>(kLedPin));
@@ -548,6 +636,21 @@ void loop() {
       break;
 
     case kanri::core::AppState::ScanningAdapter: {
+      // Com MAC configurado, pulamos a varredura inteira.
+      //
+      // Nao e so economia de tempo: um adaptador com sinal fraco (o ELM327
+      // dentro do carro, com o ESP32 a alguns metros) aparece de forma
+      // intermitente na varredura, ou nao aparece. Medido neste projeto: o
+      // adaptador respondia a -80/-90 dBm, no limite da deteccao, e a
+      // varredura do ESP32 nao o encontrava. A conexao direta funciona
+      // porque nao depende de captar o anuncio no intervalo certo.
+      if (g_transport.has_target_mac()) {
+        Serial.printf("[bt] MAC configurado (%s) — conectando direto\n",
+                      g_settings.adapter_mac);
+        dispatch(kanri::core::AppEvent::AdapterFound);
+        break;
+      }
+
       // Varredura NAO bloqueante: o radio trabalha em outra task e este loop
       // continua girando. E o que mantem o LED piscando durante a busca e o
       // watchdog alimentado. Uma versao bloqueante de 5 s congelava o LED e
@@ -576,8 +679,16 @@ void loop() {
       break;
     }
 
-    case kanri::core::AppState::ConnectingAdapter:
-      if (g_transport.connect()) {
+    case kanri::core::AppState::ConnectingAdapter: {
+      const std::uint32_t t0 = g_clock.now_ms();
+      const bool conectou = sem_watchdog([&] {
+        return g_transport.has_target_mac() ? g_transport.connect_by_mac()
+                                            : g_transport.connect();
+      });
+      Serial.printf("[bt] tentativa de conexao levou %u ms\n",
+                    static_cast<unsigned>(
+                        kanri::core::elapsed_ms(g_clock.now_ms(), t0)));
+      if (conectou) {
         Serial.println(F("[bt] canal SPP aberto"));
         dispatch(kanri::core::AppEvent::AdapterConnected);
       } else {
@@ -585,9 +696,11 @@ void loop() {
         dispatch(kanri::core::AppEvent::AdapterLost);
       }
       break;
+    }
 
     case kanri::core::AppState::InitializingElm:
-      if (g_obd.initialize()) {
+      // A sequencia AT sao seis comandos, e o ATZ sozinho pode levar 5 s.
+      if (sem_watchdog([&] { return g_obd.initialize(); })) {
         Serial.println(F("[elm] adaptador inicializado"));
         float volts = 0.0F;
         if (g_obd.read_adapter_voltage(volts)) {
@@ -604,10 +717,10 @@ void loop() {
     case kanri::core::AppState::ConnectingVehicle: {
       // Uma leitura de teste confirma que ha ECU do outro lado. Usamos a
       // rotacao: e o PID que todo carro OBD2 implementa.
-      const auto frame = g_obd.read_pid(0x01, 0x0C);
+      const auto frame = sem_watchdog([&] { return g_obd.read_pid(0x01, 0x0C); });
       if (frame.ok()) {
         Serial.println(F("[obd] ECU respondeu — barramento vivo"));
-        descobrir_pids();
+        sem_watchdog([&] { descobrir_pids(); return true; });
         dispatch(kanri::core::AppEvent::VehicleLinkUp);
       } else {
         Serial.printf("[obd] sem resposta da ECU: %s\n",
@@ -646,6 +759,7 @@ void loop() {
   }
 
   ler_console();
+  heartbeat_if_due();
   atualizar_led();
   render_if_due();
 

@@ -71,6 +71,16 @@ obd::MatchOutcome BtSerialTransport::match() const {
   return obd::select_adapter(achados_, quantos_, alvo_nome_, alvo_mac_);
 }
 
+bool BtSerialTransport::connect_by_mac() {
+  if (!iniciado_) return false;
+
+  std::uint8_t endereco[6];
+  if (!obd::parse_mac(alvo_mac_, endereco)) return false;
+
+  if (alvo_pin_[0] != '\0') bt_.setPin(alvo_pin_);
+  return bt_.connect(endereco);
+}
+
 bool BtSerialTransport::connect() {
   if (!iniciado_) return false;
 

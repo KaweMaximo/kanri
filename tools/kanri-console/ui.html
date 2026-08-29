@@ -21,17 +21,46 @@ tailwind.config = {
     },
     keyframes: {
       slidein: { '0%':{opacity:0, transform:'translateY(-4px)'}, '100%':{opacity:1, transform:'none'} },
+      bump:    { '0%':{transform:'scale(1)'}, '40%':{transform:'scale(1.6)'}, '100%':{transform:'scale(1)'} },
       breathe: { '0%,100%':{opacity:1}, '50%':{opacity:.35} },
       sweep:   { '0%':{transform:'translateX(-100%)'}, '100%':{transform:'translateX(400%)'} },
     },
     animation: {
       slidein: 'slidein .18s ease-out',
+      bump:    'bump .5s ease-out',
       breathe: 'breathe 1.4s ease-in-out infinite',
       sweep:   'sweep 1.3s ease-in-out infinite',
     },
   }},
 }
 </script>
+<style>
+  /* ------------------------------------------------------------------
+     Tokens de visualizacao de dados.
+
+     UMA cor de serie so, e nao uma por medida: cada grafico aqui tem uma
+     unica serie, e cada card ja tem rotulo proprio. Cor por medida seria
+     identidade redundante — e, com cinco cores em small multiples, nao
+     passaria nos limites de separacao para daltonismo.
+
+     Os status (temperatura) sao os unicos em que a cor CARREGA significado,
+     e por isso vem sempre com rotulo textual junto: em modo claro o amarelo
+     fica abaixo de 3:1 de contraste, entao a cor sozinha nao pode ser o
+     recado. Validado com o script da referencia contra as superficies reais
+     deste painel.
+     ------------------------------------------------------------------ */
+  .viz {
+    --serie:     #2a78d6;
+    --grade:     rgba(15, 23, 42, .10);
+    --st-good:   #0ca30c;
+    --st-warn:   #fab219;
+    --st-crit:   #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .viz { --serie: #3987e5; --grade: rgba(255,255,255,.10); }
+  }
+  :root[data-theme="dark"] .viz { --serie: #3987e5; --grade: rgba(255,255,255,.10); }
+</style>
 <style type="text/tailwindcss">
   @layer utilities {
     .card { @apply bg-white dark:bg-base-800 border border-slate-200 dark:border-base-600 rounded-xl; }
@@ -63,6 +92,11 @@ tailwind.config = {
         <div class="text-[10px] text-slate-500 dark:text-slate-500 font-mono" id="hdProjeto">—</div>
       </div>
     </div>
+
+    <nav class="flex items-center gap-1 ml-3" id="abas">
+      <button data-aba="dashboard" class="aba">Dashboard</button>
+      <button data-aba="console" class="aba">Console</button>
+    </nav>
 
     <div class="flex items-center gap-2 flex-wrap ml-auto">
       <div id="pillSerial" class="pill"><span class="dot"></span><span class="lbl">conectando…</span></div>
@@ -128,8 +162,56 @@ tailwind.config = {
     </section>
   </aside>
 
+  <!-- ───────────── dashboard ───────────── -->
+  <section id="painelDash" class="viz min-h-0 overflow-y-auto scroll-fino">
+    <!-- Barra de vivacidade. Com o carro parado, rotacao e velocidade ficam
+         em 0 e a tensao nao se move — sem isto, um painel correto e um painel
+         congelado sao indistinguiveis. -->
+    <div class="flex items-center gap-3 flex-wrap mb-4 text-[11px]">
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                   border border-slate-200 dark:border-base-600">
+        <span id="pulso" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+        <span id="lblVivo" class="text-slate-500">aguardando dados</span>
+      </span>
+      <span class="text-slate-400 font-mono" id="infoFw">—</span>
+      <span class="text-slate-400 font-mono ml-auto" id="infoContagem"></span>
+    </div>
+
+    <div id="tiles" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"></div>
+
+    <div id="semDados" class="card p-10 text-center text-slate-400">
+      <div class="text-sm">Nenhuma leitura ainda.</div>
+      <div class="text-xs mt-1">O painel mostra as medidas assim que o firmware
+        entrar em <span class="font-mono">Polling</span>.</div>
+    </div>
+
+    <!-- Tabela: a alternativa nao-visual exigida quando a cor participa da
+         leitura, e util por si so para conferir numeros exatos. -->
+    <details class="card mt-4 p-4">
+      <summary class="cursor-pointer text-[12px] text-slate-500 select-none">
+        Ver os dados em tabela
+      </summary>
+      <div class="overflow-x-auto mt-3">
+        <table class="w-full text-[12.5px]" id="tabela">
+          <thead class="text-slate-500">
+            <tr class="text-left">
+              <th class="py-1.5 pr-4 font-medium">Medida</th>
+              <th class="py-1.5 pr-4 font-medium">PID</th>
+              <th class="py-1.5 pr-4 font-medium text-right">Atual</th>
+              <th class="py-1.5 pr-4 font-medium text-right">Mín</th>
+              <th class="py-1.5 pr-4 font-medium text-right">Máx</th>
+              <th class="py-1.5 pr-4 font-medium text-right">Leituras</th>
+              <th class="py-1.5 font-medium">Idade</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
   <!-- ───────────── log ───────────── -->
-  <section class="card flex flex-col min-h-0 overflow-hidden relative">
+  <section id="painelLog" class="card flex flex-col min-h-0 overflow-hidden relative">
     <div class="px-4 py-2.5 border-b border-slate-200 dark:border-base-600
                 flex items-center gap-2 flex-wrap bg-slate-50 dark:bg-base-850/60">
       <svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -208,6 +290,11 @@ tailwind.config = {
                    border-slate-200 dark:border-base-600 text-slate-400 hover:text-slate-600
                    dark:hover:text-slate-200; }
     .chip[data-on="1"] { @apply bg-brand/10 border-brand/40 text-brand; }
+    .aba { @apply px-3 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors
+                  text-slate-500 hover:text-slate-800 dark:hover:text-slate-200; }
+    .aba[data-ativa] { @apply bg-slate-200/70 dark:bg-base-700 text-slate-900 dark:text-white; }
+    .tile { @apply bg-white dark:bg-base-800 border border-slate-200 dark:border-base-600
+                   rounded-xl p-4 flex flex-col gap-1 transition-colors; }
   }
 </style>
 
@@ -385,6 +472,179 @@ for (const b of document.querySelectorAll('#acoes button')) {
   };
 }
 
+/* ── dashboard de telemetria ──────────────────────────────────── */
+
+// Acima desta idade a medida deixa de valer como "atual" — a mesma regra do
+// firmware (kMaxValueAgeMs). Um valor de 10 s atras mostrado como agora
+// engana tanto quanto um valor inventado.
+const IDADE_MAX_S = 3;
+
+// Faixas de temperatura do 4B11. A cor NUNCA vai sozinha: cada faixa tem
+// rotulo textual, porque em modo claro o amarelo fica abaixo de 3:1 de
+// contraste e a cor por si nao comunicaria nada a quem nao a distingue.
+function statusTemp(c) {
+  if (c >= 105) return {cor: 'var(--st-crit)', texto: 'crítico', icone: '▲'};
+  if (c >= 98)  return {cor: 'var(--st-warn)', texto: 'atenção', icone: '▲'};
+  if (c < 60)   return {cor: 'var(--st-warn)', texto: 'aquecendo', icone: '▴'};
+  return {cor: 'var(--st-good)', texto: 'normal', icone: '●'};
+}
+
+function fmt(v, casas) {
+  return v.toFixed(casas ?? (Math.abs(v) >= 100 ? 0 : 1));
+}
+
+/* Sparkline: uma serie, 2px, sem eixos nem grade pesada. O trabalho dela e
+   mostrar a TENDENCIA; o numero exato ja esta grande logo acima. */
+function sparkline(serie, largura, altura) {
+  if (serie.length < 2) return '';
+  const vs = serie.map(p => p[1]);
+  let min = Math.min(...vs), max = Math.max(...vs);
+  // Serie constante: uma linha reta no meio, em vez de divisao por zero.
+  if (max - min < 1e-9) { min -= 1; max += 1; }
+  const pad = (max - min) * 0.12;
+  min -= pad; max += pad;
+
+  const x = i => (i / (serie.length - 1)) * largura;
+  const y = v => altura - ((v - min) / (max - min)) * altura;
+  const pts = serie.map((p, i) => `${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`);
+
+  // Area sob a linha, bem discreta: da volume sem competir com a linha.
+  const area = `M0,${altura} L${pts.join(' L')} L${largura},${altura} Z`;
+  const linha = `M${pts.join(' L')}`;
+  const ult = serie[serie.length - 1];
+
+  return `
+    <svg viewBox="0 0 ${largura} ${altura}" class="w-full" style="height:${altura}px"
+         preserveAspectRatio="none" aria-hidden="true">
+      <path d="${area}" fill="var(--serie)" opacity=".10"/>
+      <path d="${linha}" fill="none" stroke="var(--serie)" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"
+            vector-effect="non-scaling-stroke"/>
+      <circle cx="${largura}" cy="${y(ult[1]).toFixed(1)}" r="3"
+              fill="var(--serie)"/>
+    </svg>`;
+}
+
+function tileHTML(m, agora) {
+  const idade = agora - m.t;
+  const velho = idade > IDADE_MAX_S;
+  const ehTemp = m.pid === '05';
+  const st = ehTemp && !velho ? statusTemp(m.valor) : null;
+
+  const vs = m.serie.map(p => p[1]);
+  const min = vs.length ? Math.min(...vs) : 0;
+  const max = vs.length ? Math.max(...vs) : 0;
+
+  return `
+    <article class="tile" ${st ? `style="border-color:${st.cor}44"` : ''}>
+      <div class="flex items-center justify-between gap-2">
+        <span class="rot">${m.nome}</span>
+        ${st ? `<span class="inline-flex items-center gap-1 text-[10px] font-medium"
+                      style="color:${st.cor}">${st.icone} ${st.texto}</span>`
+             : `<span class="text-[10px] text-slate-400 font-mono">${m.pid}</span>`}
+      </div>
+
+      <div class="flex items-baseline gap-1.5">
+        <!-- O numero usa cor de TEXTO, nunca a cor da serie: quem carrega a
+             identidade e o rotulo, e valor colorido vira ruido. -->
+        <span class="font-mono text-3xl font-semibold tabular-nums
+                     ${velho ? 'text-slate-400' : 'text-slate-900 dark:text-white'}">
+          ${velho ? '--' : fmt(m.valor)}
+        </span>
+        <span class="text-[12px] text-slate-500">${velho ? '' : m.unidade}</span>
+      </div>
+
+      <div class="mt-1">${sparkline(m.serie, 240, 40)}</div>
+
+      <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+        <span>mín ${vs.length ? fmt(min) : '--'}</span>
+        <span>${velho ? `sem leitura há ${idade.toFixed(0)}s` : `${m.serie.length} leituras`}</span>
+        <span>máx ${vs.length ? fmt(max) : '--'}</span>
+      </div>
+    </article>`;
+}
+
+// Guarda quantas leituras cada medida tinha na atualizacao anterior. E assim
+// que sabemos que CHEGOU dado novo, mesmo quando o valor e identico — o caso
+// do carro parado, em que rotacao e velocidade ficam em 0 o tempo todo.
+const ultimaContagem = {};
+
+async function atualizarDashboard() {
+  if (abaAtual !== 'dashboard') return;
+  let d;
+  try { d = await (await fetch('/api/telemetry')).json(); } catch { return; }
+
+  const tem = d.medidas.length > 0;
+  $('semDados').classList.toggle('hidden', tem);
+
+  let chegouAlgo = false;
+  let totalLeituras = 0;
+  for (const m of d.medidas) {
+    totalLeituras += m.serie.length;
+    if (ultimaContagem[m.pid] !== undefined &&
+        m.serie.length !== ultimaContagem[m.pid]) chegouAlgo = true;
+    ultimaContagem[m.pid] = m.serie.length;
+  }
+
+  // Vivo = houve leitura nos ultimos segundos. Nao basta o valor ser recente:
+  // o que importa e se o firmware CONTINUA lendo.
+  const maisNovo = d.medidas.reduce((a, m) => Math.max(a, m.t), 0);
+  const idade = maisNovo ? d.agora - maisNovo : Infinity;
+  const vivo = idade < IDADE_MAX_S;
+
+  $('pulso').className = 'w-1.5 h-1.5 rounded-full ' +
+    (vivo ? 'bg-good shadow-[0_0_6px] shadow-good' : 'bg-bad');
+  if (chegouAlgo) {
+    $('pulso').classList.add('animate-bump');
+    setTimeout(() => $('pulso').classList.remove('animate-bump'), 500);
+  }
+  $('lblVivo').textContent = vivo
+    ? `lendo o carro — última há ${idade.toFixed(1)}s`
+    : (maisNovo ? `parou de ler há ${idade.toFixed(0)}s` : 'aguardando dados');
+  $('lblVivo').className = vivo ? 'text-good' : 'text-slate-500';
+
+  $('infoFw').textContent = d.estado && d.estado !== '—'
+    ? `${d.estado} · ${d.frames_ok} ok · ${d.rejeitados} rejeitadas · ${d.uptime_s}s no ar`
+    : '';
+  $('infoContagem').textContent = totalLeituras ? `${totalLeituras} pontos` : '';
+
+  $('tiles').innerHTML = d.medidas.map(m => tileHTML(m, d.agora)).join('');
+
+  document.querySelector('#tabela tbody').innerHTML = d.medidas.map(m => {
+    const vs = m.serie.map(p => p[1]);
+    const idade = (d.agora - m.t).toFixed(1);
+    return `<tr class="border-t border-slate-100 dark:border-base-700">
+      <td class="py-1.5 pr-4 font-sans">${m.nome}</td>
+      <td class="py-1.5 pr-4 text-slate-400">${m.pid}</td>
+      <td class="py-1.5 pr-4 text-right">${fmt(m.valor)} ${m.unidade}</td>
+      <td class="py-1.5 pr-4 text-right text-slate-500">${vs.length ? fmt(Math.min(...vs)) : '--'}</td>
+      <td class="py-1.5 pr-4 text-right text-slate-500">${vs.length ? fmt(Math.max(...vs)) : '--'}</td>
+      <td class="py-1.5 pr-4 text-right text-slate-500">${m.serie.length}</td>
+      <td class="py-1.5 text-slate-500">${idade}s</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── abas ─────────────────────────────────────────────────────── */
+let abaAtual = 'dashboard';
+
+function trocarAba(nome) {
+  abaAtual = nome;
+  for (const b of document.querySelectorAll('.aba')) {
+    if (b.dataset.aba === nome) b.setAttribute('data-ativa', '');
+    else b.removeAttribute('data-ativa');
+  }
+  $('painelDash').classList.toggle('hidden', nome !== 'dashboard');
+  $('painelLog').classList.toggle('hidden', nome !== 'console');
+  try { localStorage.setItem('kanri-aba', nome); } catch {}
+  if (nome === 'dashboard') atualizarDashboard();
+  else if ($('chkAuto').checked) log.scrollTop = log.scrollHeight;
+}
+
+for (const b of document.querySelectorAll('.aba')) {
+  b.onclick = () => trocarAba(b.dataset.aba);
+}
+
 /* ── console de comandos ──────────────────────────────────────── */
 const historico = [];
 let hpos = -1;
@@ -425,7 +685,17 @@ $('btTema').onclick = () => {
   try { localStorage.setItem('kanri-tema', raiz.classList.contains('dark') ? 'dark' : 'light'); } catch {}
 };
 
-conectar(); status(); setInterval(status, 1000);
+conectar();
+status();
+setInterval(status, 1000);
+
+// O dashboard tem seu proprio timer. Sem ele, os tiles so se atualizavam ao
+// trocar de aba — pareciam corretos e congelados ao mesmo tempo.
+setInterval(atualizarDashboard, 1000);
+
+let abaSalva = 'dashboard';
+try { abaSalva = localStorage.getItem('kanri-aba') || 'dashboard'; } catch {}
+trocarAba(abaSalva);
 </script>
 </body>
 </html>
