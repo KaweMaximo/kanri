@@ -27,6 +27,7 @@
 #include "hal/bt_serial_transport.h"
 #include "hal/gpio_led.h"
 #include "hal/nvs_config_store.h"
+#include "hal/max7219_display.h"
 #include "hal/serial_display.h"
 #include "kanri_config/command_parser.h"
 #include "kanri_config/settings.h"
@@ -39,6 +40,10 @@
 #include "kanri_obd/pid_decoder.h"
 #include "kanri_obd/dtc.h"
 #include "kanri_obd/pid_support.h"
+#include <cstring>
+
+#include "kanri_core/button.h"
+#include "kanri_display/max7219.h"
 #include "kanri_display/view_model.h"
 
 namespace {
@@ -72,6 +77,21 @@ constexpr std::uint32_t kRetryMaxMs = 30000;
 constexpr std::uint8_t kLedPin = 2;
 constexpr bool kLedAtivoBaixo = false;
 
+// Mostrador do painel: MAX7219 por SPI. Tres fios, decisao de Jose Rodrigues
+// — ver docs/HARDWARE.md. LOAD e o mesmo pino que o MAX7221 chama de CS.
+constexpr std::uint8_t kSegDin = 23;
+constexpr std::uint8_t kSegClk = 18;
+constexpr std::uint8_t kSegLoad = 5;
+
+// Botao que troca a medida exibida. INPUT_PULLUP: solto le HIGH, apertado LOW.
+// GPIO 17 tem pull-up interno e nao e pino de strapping — os da faixa 34-39
+// NAO teriam pull-up, e o `pinMode` nem reclamaria. Ver docs/HARDWARE.md.
+constexpr std::uint8_t kBotaoPin = 17;
+
+// De quanto em quanto tempo o mostrador do carro e redesenhado. Mais rapido
+// que o texto porque o piscar do alerta precisa de resolucao.
+constexpr std::uint32_t kSegRenderIntervalMs = 100;
+
 // Quanto tempo cada varredura Bluetooth dura.
 constexpr std::uint32_t kScanMs = 5000;
 
@@ -91,6 +111,8 @@ constexpr std::uint32_t kHeartbeatMs = 3000;
 // --- Adaptadores de hardware (as escolhas concretas da v0.1) --------------
 kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
+kanri::hal::Max7219Display g_seg(kSegDin, kSegClk, kSegLoad);
+kanri::core::Button g_botao;
 kanri::hal::NvsConfigStore g_config_store;
 kanri::hal::BtSerialTransport g_transport("Kanri");
 kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
@@ -108,6 +130,8 @@ kanri::core::RetryPolicy g_retry(kRetryBaseMs, kRetryMaxMs);
 
 std::uint32_t g_degraded_since_ms = 0;
 std::uint32_t g_last_render_ms = 0;
+std::uint32_t g_last_seg_ms = 0;
+std::size_t g_medida_idx = 0;
 /// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
 std::uint32_t g_retry_delay_ms = 0;
 /// Quando o estado atual comecou. E a origem de tempo do padrao do LED: sem
@@ -597,6 +621,64 @@ void heartbeat_if_due() {
                 static_cast<unsigned>(agora / 1000U));
 }
 
+/// Le o botao e troca a medida exibida.
+///
+/// Chamado a cada volta do laco, nao por temporizador: o antirrebote precisa
+/// ver as transicoes para filtrar o ruido mecanico do contato.
+void ler_botao() {
+  // INPUT_PULLUP inverte a logica: o pino em nivel BAIXO e o botao apertado.
+  const bool apertado = (digitalRead(kBotaoPin) == LOW);
+
+  switch (g_botao.update(apertado, g_clock.now_ms())) {
+    case kanri::core::ButtonEvent::Click:
+      g_medida_idx = (g_medida_idx + 1) % kanri::display::kSegMeasureCount;
+      Serial.printf("[botao] medida -> %s\n",
+                    kanri::display::kSegMeasures[g_medida_idx].key);
+      // Redesenha na hora: esperar o proximo ciclo faria o toque parecer
+      // perdido, e o motorista aperta de novo.
+      g_last_seg_ms = 0;
+      break;
+    case kanri::core::ButtonEvent::LongPress:
+      g_medida_idx = 0;
+      Serial.println(F("[botao] toque longo — volta para a primeira medida"));
+      g_last_seg_ms = 0;
+      break;
+    default:
+      break;
+  }
+}
+
+/// Desenha o mostrador de tres digitos do painel.
+void render_seg_if_due() {
+  const std::uint32_t now = g_clock.now_ms();
+  if (g_last_seg_ms != 0 &&
+      kanri::core::elapsed_ms(now, g_last_seg_ms) < kSegRenderIntervalMs) {
+    return;
+  }
+  g_last_seg_ms = now;
+
+  // Fora de operacao normal nao ha medida em que confiar. Tres tracos dizem
+  // "sem leitura" sem mentir; o numero velho pareceria atual.
+  if (!kanri::core::is_operational(g_state)) {
+    kanri::display::SegFrame vazio;
+    std::strncpy(vazio.text, kanri::display::kSegNoValue,
+                 sizeof(vazio.text) - 1);
+    g_seg.render(vazio);
+    return;
+  }
+
+  const kanri::display::SegFrame frame =
+      kanri::display::build_seg_frame(g_telemetry, g_medida_idx, now);
+
+  // O piscar do alerta e resolvido aqui: o driver e burro de proposito e
+  // desenha exatamente o que recebe. Ver kanri_display/max7219.h.
+  if (frame.blink && !kanri::display::blink_visible(now)) {
+    g_seg.clear();
+    return;
+  }
+  g_seg.render(frame);
+}
+
 void render_if_due() {
   const std::uint32_t now = g_clock.now_ms();
   if (kanri::core::elapsed_ms(now, g_last_render_ms) < kRenderIntervalMs) {
@@ -664,6 +746,19 @@ void setup() {
     return;
   }
   g_display.set_brightness(g_settings.display_brightness);
+
+  // Botao do painel. Sem pull-up o pino flutua e a medida trocaria sozinha
+  // com o motor ligado — o carro e um ambiente eletricamente barulhento.
+  pinMode(kBotaoPin, INPUT_PULLUP);
+  Serial.printf("[botao] no GPIO %u (INPUT_PULLUP)\n",
+                static_cast<unsigned>(kBotaoPin));
+
+  // O mostrador do painel. Falhar aqui NAO leva a Fault: o aparelho continua
+  // util pelo console e pelo painel web, e um carro sem display e melhor do
+  // que um firmware que se recusa a funcionar. Degradacao graciosa.
+  if (!g_seg.begin()) {
+    Serial.println(F("[7seg] nao inicializou — seguindo sem o mostrador"));
+  }
 
   (void)g_config_store.begin();
 
@@ -820,7 +915,9 @@ void loop() {
   ler_console();
   heartbeat_if_due();
   atualizar_led();
+  ler_botao();
   render_if_due();
+  render_seg_if_due();
 
   // Cede tempo ao scheduler do FreeRTOS. Sem isso, tarefas de sistema (rede,
   // watchdog interno) ficariam sem CPU. Um loop apertado em firmware

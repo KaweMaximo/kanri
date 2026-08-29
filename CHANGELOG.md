@@ -8,6 +8,41 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Driver do MAX7219** — o firmware finalmente acende o mostrador do painel.
+  Até aqui a única saída era o `SerialDisplay`, que desenha texto no console:
+  a fiação podia estar perfeita e o display ficava apagado.
+
+  O protocolo mora em `kanri_display/max7219.h`, em **função pura**, e o SPI
+  em `src/hal/max7219_display.cpp`. A divisão importa porque o MAX7219 **não
+  responde nada** — não há registrador de leitura nem ACK. Quando o painel
+  mostra o número errado, o chip não tem como avisar, e do ponto de vista do
+  firmware tudo correu bem. Só teste no PC pega isso.
+
+- **Fonte de 7 segmentos** com os 32 caracteres do alfabeto do painel, e um
+  teste que **confronta as duas fontes de verdade**: `is_renderable()` consulta
+  a string `kAlfabeto`, `encode_char()` consulta a tabela `kFont` — escritas
+  separadamente. Se divergirem em um único caractere entre os 128, uma delas
+  está mentindo.
+
+- **Botão no GPIO 17** percorre as medidas do painel; toque longo volta para a
+  primeira. Antirrebote pelo `Button` que já existia em `kanri_core`.
+
+- `ISevenSeg`: a porta do mostrador de três dígitos. Irmã de `IDisplay`, não
+  substituta — texto e sete segmentos são saídas de naturezas diferentes, e as
+  duas continuam existindo.
+
+- `blink_visible()` resolve o piscar do alerta de motor quente, com teste na
+  virada do contador de 49,7 dias do `millis()`. O aparelho fica ligado no
+  carro, então a virada acontece — e um alerta não pode parar de piscar nela.
+
+### Modificado
+- O brilho inicial do mostrador nasce em **30 %**, não no máximo. Na bancada o
+  MAX7219 divide os 500 mA do USB com o ESP32, e um mostrador em brilho total
+  puxa perto de 300 mA. Se a linha cair, quem reinicia é o ESP32 — e o log diz
+  `BROWNOUT`. O registrador de intensidade é *duty cycle*, então o número corta
+  a corrente média de verdade, não só o brilho percebido.
+
+### Adicionado
 - **Mapa de pinos da ESP32 DevKit V1 (30 pinos)** em `docs/HARDWARE.md`, com o
   acionamento do display pelo MAX7219 em três fios (`DIN` 23, `CLK` 18,
   `LOAD` 5) como caminho escolhido, e a alocação direta pelos GPIOs registrada
