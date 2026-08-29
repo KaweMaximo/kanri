@@ -74,6 +74,8 @@ kanri::core::RetryPolicy g_retry(kRetryBaseMs, kRetryMaxMs);
 
 std::uint32_t g_degraded_since_ms = 0;
 std::uint32_t g_last_render_ms = 0;
+/// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
+std::uint32_t g_retry_delay_ms = 0;
 
 /// Ponto unico de entrada de eventos na maquina de estados.
 ///
@@ -97,11 +99,13 @@ void dispatch(kanri::core::AppEvent event) {
   }
 
   if (g_state == kanri::core::AppState::Degraded) {
-    g_retry.on_failure();
+    // record_failure() devolve o intervalo DESTA falha e ja avanca o contador.
+    // Um metodo so, sem ordem para errar — ver retry_policy.h.
+    g_retry_delay_ms = g_retry.record_failure();
     g_degraded_since_ms = g_clock.now_ms();
     Serial.printf("[retry] tentativa %u, proxima em %u ms\n",
                   static_cast<unsigned>(g_retry.attempt_count()),
-                  static_cast<unsigned>(g_retry.current_delay_ms()));
+                  static_cast<unsigned>(g_retry_delay_ms));
   }
 }
 
@@ -220,7 +224,7 @@ void loop() {
       // `while(1)`, nenhuma tentativa em rajada. Degradacao graciosa.
       const std::uint32_t waited =
           kanri::core::elapsed_ms(g_clock.now_ms(), g_degraded_since_ms);
-      if (waited >= g_retry.current_delay_ms()) {
+      if (waited >= g_retry_delay_ms) {
         dispatch(kanri::core::AppEvent::RetryTimerExpired);
       }
       break;

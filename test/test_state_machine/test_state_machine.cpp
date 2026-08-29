@@ -255,6 +255,50 @@ void test_backoff_dobra_a_cada_falha(void) {
   TEST_ASSERT_EQUAL_UINT32(8000, policy.current_delay_ms());
 }
 
+// REGRESSAO: este teste existe por causa de um bug real, encontrado gravando
+// o firmware no ESP32 e lendo o log serial — nao pelos 122 testes que ja
+// existiam.
+//
+// O main.cpp chamava on_failure() ANTES de ler current_delay_ms(), entao a
+// primeira falha ja dobrava e o valor base nunca era usado: o aparelho
+// esperava 2s, 4s, 8s em vez de 1s, 2s, 4s.
+//
+// A RetryPolicy estava correta e testada. O erro estava na ORDEM de uso, que
+// morava no main.cpp — a unica parte do projeto sem teste. record_failure()
+// junta as duas operacoes para que nao exista ordem a errar.
+void test_record_failure_comeca_pelo_delay_base(void) {
+  RetryPolicy policy(1000, 30000);
+
+  // A primeira falha tem de devolver o VALOR BASE, nao o dobro.
+  TEST_ASSERT_EQUAL_UINT32(1000, policy.record_failure());
+  TEST_ASSERT_EQUAL_UINT32(2000, policy.record_failure());
+  TEST_ASSERT_EQUAL_UINT32(4000, policy.record_failure());
+  TEST_ASSERT_EQUAL_UINT32(8000, policy.record_failure());
+  TEST_ASSERT_EQUAL_UINT32(16000, policy.record_failure());
+  TEST_ASSERT_EQUAL_UINT32(30000, policy.record_failure());  // teto
+  TEST_ASSERT_EQUAL_UINT32(30000, policy.record_failure());
+}
+
+// record_failure() tem de avancar o contador igual a on_failure().
+void test_record_failure_avanca_o_contador(void) {
+  RetryPolicy policy(1000, 30000);
+  TEST_ASSERT_EQUAL_UINT32(0, policy.attempt_count());
+  policy.record_failure();
+  TEST_ASSERT_EQUAL_UINT32(1, policy.attempt_count());
+  policy.record_failure();
+  TEST_ASSERT_EQUAL_UINT32(2, policy.attempt_count());
+}
+
+// Depois de reconectar, a proxima falha volta a esperar o valor base.
+void test_record_failure_respeita_o_reset_por_sucesso(void) {
+  RetryPolicy policy(1000, 30000);
+  policy.record_failure();
+  policy.record_failure();
+  policy.record_failure();
+  policy.on_success();
+  TEST_ASSERT_EQUAL_UINT32(1000, policy.record_failure());
+}
+
 void test_backoff_para_no_teto(void) {
   RetryPolicy policy(1000, 5000);
   for (int i = 0; i < 50; ++i) policy.on_failure();
@@ -325,6 +369,9 @@ int main() {
   RUN_TEST(test_evento_corrompido_e_ignorado_com_seguranca);
 
   RUN_TEST(test_backoff_dobra_a_cada_falha);
+  RUN_TEST(test_record_failure_comeca_pelo_delay_base);
+  RUN_TEST(test_record_failure_avanca_o_contador);
+  RUN_TEST(test_record_failure_respeita_o_reset_por_sucesso);
   RUN_TEST(test_backoff_para_no_teto);
   RUN_TEST(test_backoff_nao_estoura_o_inteiro);
   RUN_TEST(test_sucesso_reseta_o_backoff);

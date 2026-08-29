@@ -21,6 +21,19 @@ Próxima versão planejada: [v0.2.0 — Conexão e leitura de PIDs](docs/ROADMAP
   Changelog e exemplos de entrada boa e ruim.
 
 ### Corrigido
+- **Backoff pulava o intervalo base.** Na primeira falha de conexão o firmware
+  esperava 2 s em vez de 1 s, e a sequência real era 2, 4, 8, 16 s — não a
+  1, 2, 4, 8 s que `retry_policy.h` documentava. O `main.cpp` chamava
+  `on_failure()` **antes** de ler `current_delay_ms()`, então a primeira falha
+  já dobrava o intervalo e o valor base nunca era usado.
+
+  A `RetryPolicy` estava correta e testada; o erro estava na **ordem de uso**,
+  que morava no `main.cpp` — a única parte do projeto sem teste. Os 122 testes
+  passavam. O bug só apareceu ao gravar o firmware no ESP32 e ler o log serial.
+
+  Corrigido com `RetryPolicy::record_failure()`, que lê o intervalo e avança o
+  contador numa única chamada: não existe mais ordem para errar. Coberto por
+  três testes de regressão.
 - **Instruções de instalação do PlatformIO.** O repositório mandava rodar
   `pip install platformio`, que **falha** no Ubuntu 24.04+ e Debian 12+: essas
   distribuições marcam o Python do sistema como *externally managed*
