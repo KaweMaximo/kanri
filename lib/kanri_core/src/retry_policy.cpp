@@ -21,6 +21,14 @@ std::uint32_t RetryPolicy::current_delay_ms() const {
   return delay > max_delay_ms_ ? max_delay_ms_ : delay;
 }
 
+std::uint32_t RetryPolicy::record_failure() {
+  // Le ANTES de avancar: o intervalo devolvido e o desta falha. Avancar
+  // primeiro faria a primeira espera ja ser o dobro do valor base.
+  const std::uint32_t delay = current_delay_ms();
+  on_failure();
+  return delay;
+}
+
 void RetryPolicy::on_failure() {
   if (attempts_ < kMaxTrackedAttempts) ++attempts_;
 }
