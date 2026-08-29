@@ -420,7 +420,34 @@ roda e não dá erro nenhum**. O pino simplesmente nunca muda de nível.
 | `D5` | 5 | Strapping com pull-up interno. Um LED aqui pisca durante o boot |
 | `D2` | 2 | Já é o **LED de status** do firmware (e é strapping) |
 
-### ✅ Alocação proposta — acionamento direto
+### ✅ O caminho escolhido: três fios
+
+**Decisão de Jose Rodrigues (29/08/2026):** o display é acionado pelo MAX7219,
+e o ESP32 fala com ele por **três pinos** em vez de onze.
+
+| Sinal | Pino do MAX7219 | GPIO |
+|---|---|---|
+| `DIN` | 1 | **23** |
+| `CLK` | 13 | **18** |
+| `LOAD` | 12 | **5** |
+
+> ⚠️ **`LOAD` e `CS` são o mesmo pino.** O pino 12 chama-se `LOAD` no MAX7219
+> e `CS` no MAX7221. Datasheets e bibliotecas usam os dois nomes para o mesmo
+> sinal — quem lê "DIN, LOAD e CS" como três fios acaba esquecendo o `CLK`, e
+> aí o display fica apagado sem dar erro nenhum.
+
+O ganho não é só a economia de pinos. **A multiplexação sai da CPU:** no
+acionamento direto o ESP32 teria de redesenhar os dígitos dezenas de vezes por
+segundo num timer, e uma leitura OBD trava o laço por até 1 s — o display
+piscaria a cada leitura. Com o MAX7219 o número é enviado **uma vez**.
+
+O orçamento de corrente também deixa de existir: os segmentos puxam do **5 V
+do MAX7219**, não do GPIO.
+
+### Plano B — acionamento direto, sem o MAX7219
+
+Só vale se o chip não estiver disponível. Fica registrado porque a análise de
+pinos proibidos acima continua valendo em qualquer cenário.
 
 Restam 14 GPIOs plenamente livres e são necessários 11. Cabe com folga.
 
@@ -449,7 +476,7 @@ conferível de relance.
 e **5** (`CS`). Ficam de fora da alocação acima de propósito, para os dois
 caminhos coexistirem na placa durante a transição.
 
-### 🔴 A corrente dos pinos de dígito
+### 🔴 A corrente dos pinos de dígito — só no plano B
 
 Nos três pinos de **dígito comum** passa a **soma** de todos os segmentos
 acesos daquele dígito — não a corrente de um segmento.
