@@ -8,6 +8,36 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Leitura de códigos de falha no firmware.** Comando `dtc` no console, e uma
+  leitura automática ao conectar — é a informação que se quer saber assim que
+  o aparelho liga, e que não muda a cada segundo.
+- **Aba de Diagnóstico no Kanri Console**, com um cartão por tipo de código.
+
+  Ela distingue **três estados**, e confundi-los levaria à conclusão errada:
+  *ainda não consultado*, *nenhum código* (boa notícia, em verde) e *não foi
+  possível ler* (em âmbar — não sabemos). Uma lista vazia por falha de leitura
+  parecendo "carro sem defeito" seria pior do que não mostrar nada.
+
+  A tela também diz o que o aparelho **não** faz: *"somente leitura — este
+  aparelho não apaga códigos"*.
+- `parse_mode_response()` no parser, para os modos pedidos **sem PID**.
+  Os modos de DTC são enviados sozinhos (`03`, não `0300`) e a ECU responde
+  sem ecoar PID — o segundo byte é a **contagem** de códigos. Usar o parser
+  normal faria ele cobrar um PID inexistente e rejeitar a contagem como se
+  fosse PID errado.
+
+### Modificado
+- O `FakeElm327` passa a responder a modos pedidos sozinhos, para que o
+  diálogo de DTC seja testável sem carro.
+- Segunda exclusão `GCOVR_EXCL` do projeto, em `read_dtcs()`: a checagem da
+  allowlist é inalcançável hoje, porque `mode_for()` só devolve modos
+  permitidos por construção. **A guarda fica** — é a mesma porta que todo
+  caminho de saída atravessa, e é ela que impede um `DtcKind` novo de ir ao
+  barramento sem passar pela allowlist. Remover uma barreira porque "hoje ela
+  não dispara" é exatamente como barreiras somem de projetos.
+
+
+### Adicionado
 - **Escopo ampliado para todos os modos OBD2 de leitura.** Antes só `0x01` e
   `0x09`; agora também `0x02` (freeze frame), `0x03`/`0x07`/`0x0A` (códigos de
   falha gravados, pendentes e permanentes), `0x05` (sonda O2) e `0x06`

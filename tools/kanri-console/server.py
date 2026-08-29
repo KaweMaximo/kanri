@@ -49,6 +49,8 @@ RE_VERSAO = re.compile(r"Kanri v(\S+)")
 RE_MEDIDA = re.compile(r"\[obd\]\s+([0-9A-Fa-f]{2})\s+=\s+(-?[\d.]+)\s*(\S*)")
 # "[hb] Polling ok=123 rej=4 up=87s" — a batida periodica do firmware.
 RE_HB = re.compile(r"\[hb\]\s+(\S+)\s+ok=(\d+)\s+rej=(\d+)\s+up=(\d+)s")
+# "[dtc] gravado: P0301" / "[dtc] gravado: nenhum" / "[dtc] total: 2 codigo(s)"
+RE_DTC = re.compile(r"\[dtc\]\s+(\w+):\s+(.+)")
 
 # Nome de cada PID. Espelha o catalogo de lib/kanri_obd/include/kanri_obd/obd_pid.h
 # — se um PID novo entrar no rodizio do firmware, acrescente aqui tambem.
@@ -151,6 +153,11 @@ class Hub:
         self.series: dict[str, list] = {}
         self.frames_ok = 0
         self.rejeitados = 0
+        # Codigos de falha, por tipo. Uma LISTA VAZIA e diferente de AUSENTE:
+        # vazia = a ECU respondeu "nenhum"; ausente = ainda nao perguntamos.
+        self.dtcs: dict[str, list] = {}
+        self.dtc_erros: dict[str, str] = {}
+        self.dtc_lido_em = 0.0
         self.uptime_s = 0
         self.ultimo_hb = 0.0
 
@@ -211,11 +218,33 @@ class Hub:
                 "uptime_s": self.uptime_s,
                 "ultimo_hb": self.ultimo_hb,
                 "medidas": saida,
+                "dtcs": dict(self.dtcs),
+                "dtc_erros": dict(self.dtc_erros),
+                "dtc_lido_em": self.dtc_lido_em,
             }
 
     def _interpretar(self, tipo: str, texto: str) -> None:
         """Extrai o estado do firmware das linhas de log."""
         if tipo != "serial":
+            return
+        m = RE_DTC.search(texto)
+        if m:
+            tipo, conteudo = m.group(1), m.group(2).strip()
+            if tipo == "total":
+                self.dtc_lido_em = time.time()
+                return
+            self.dtc_erros.pop(tipo, None)
+            if conteudo == "nenhum":
+                self.dtcs[tipo] = []
+            elif conteudo.startswith("nao consegui ler"):
+                self.dtcs.pop(tipo, None)
+                self.dtc_erros[tipo] = conteudo
+            elif conteudo.startswith("ha mais codigos"):
+                pass
+            else:
+                self.dtcs.setdefault(tipo, [])
+                if conteudo not in self.dtcs[tipo]:
+                    self.dtcs[tipo].append(conteudo)
             return
         m = RE_HB.search(texto)
         if m:

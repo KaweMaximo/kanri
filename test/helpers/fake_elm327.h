@@ -51,6 +51,11 @@ class FakeElm327 final : public obd::ITransport {
     at_[normalizar(comando)] = resposta;
   }
 
+  /// Resposta para um modo pedido SOZINHO, sem PID (0x03, 0x07, 0x0A).
+  void on_mode(std::uint8_t mode, const char* resposta) {
+    modos_[mode] = resposta;
+  }
+
   /// Quanto o "adaptador" demora para comecar a responder.
   void set_latency_ms(std::uint32_t ms) { latencia_ = ms; }
 
@@ -177,6 +182,10 @@ class FakeElm327 final : public obd::ITransport {
       const std::uint8_t pid = hex2(cmd[2], cmd[3]);
       const auto it = respostas_.find(chave(mode, pid));
       corpo += (it != respostas_.end()) ? it->second : std::string("NO DATA");
+    } else if (cmd.size() == 2) {
+      // Modo pedido sozinho: 03, 07, 0A.
+      const auto it = modos_.find(hex2(cmd[0], cmd[1]));
+      corpo += (it != modos_.end()) ? it->second : std::string("NO DATA");
     } else {
       corpo += "?";
     }
@@ -216,6 +225,7 @@ class FakeElm327 final : public obd::ITransport {
   std::string saida_;
   std::map<std::uint16_t, std::string> respostas_;
   std::map<std::string, std::string> at_;
+  std::map<std::uint8_t, std::string> modos_;
 };
 
 }  // namespace kanri::test

@@ -25,6 +25,7 @@
 #include <cstdint>
 
 #include "kanri_core/i_clock.h"
+#include "kanri_obd/dtc.h"
 #include "kanri_obd/elm327_parser.h"
 #include "kanri_obd/i_transport.h"
 #include "kanri_obd/safety.h"
@@ -78,6 +79,17 @@ class ObdClient {
   /// recusa e NAO toca no barramento.
   ParsedFrame read_pid(std::uint8_t mode, std::uint8_t pid);
 
+  /// Le os codigos de falha de um dos modos de DTC.
+  ///
+  /// @param kind  Stored (0x03), Pending (0x07) ou Permanent (0x0A).
+  /// @return a lista; vazia quando nao ha codigos OU quando a leitura falhou.
+  ///         Use `last_dtc_status()` para distinguir os dois casos — "nenhum
+  ///         codigo" e uma boa noticia, "nao consegui ler" nao e.
+  DtcList read_dtcs(DtcKind kind);
+
+  /// O status da ultima chamada a read_dtcs().
+  ParseStatus last_dtc_status() const { return last_dtc_status_; }
+
   /// Le a tensao medida pelo proprio adaptador (comando ATRV).
   /// Nao envolve a ECU: e o ELM327 medindo o pino 16 do conector.
   /// @param out_volts preenchido somente quando devolve true.
@@ -127,6 +139,7 @@ class ObdClient {
   bool ready_ = false;
   bool primeira_leitura_ = true;
   AuditSink audit_ = nullptr;
+  ParseStatus last_dtc_status_ = ParseStatus::Empty;
 };
 
 }  // namespace kanri::obd

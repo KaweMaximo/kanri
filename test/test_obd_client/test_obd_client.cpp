@@ -346,6 +346,113 @@ void test_resposta_inesperada_na_inicializacao(void) {
 }
 
 // ---------------------------------------------------------------------------
+//  CODIGOS DE FALHA
+// ---------------------------------------------------------------------------
+
+// A resposta do modo 03 nao ecoa PID: vem "43 <contagem> <codigos...>".
+// Usar o parser normal aqui cobraria um PID que nao existe.
+void test_le_codigos_de_falha(void) {
+  Elm h;
+  // Dois codigos: P0301 e P0420.
+  h.elm.on_mode(0x03, "43 02 03 01 04 20");
+
+  const auto lista = h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+  TEST_ASSERT_EQUAL_UINT8(2, lista.count);
+  TEST_ASSERT_EQUAL_STRING("P0301", lista.items[0].text);
+  TEST_ASSERT_EQUAL_STRING("P0420", lista.items[1].text);
+}
+
+// O comando enviado e SO o modo. Mandar "0300" seria malformado, e alguns
+// adaptadores respondem "?" a isso.
+void test_modo_de_dtc_e_pedido_sem_pid(void) {
+  Elm h;
+  h.elm.on_mode(0x03, "43 01 03 01");
+  h.elm.clear_written();
+
+  h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+  TEST_ASSERT_EQUAL_STRING("03\r", h.elm.written().c_str());
+}
+
+void test_le_os_tres_tipos_de_codigo(void) {
+  Elm h;
+  h.elm.on_mode(0x03, "43 01 03 01");  // gravado
+  h.elm.on_mode(0x07, "47 01 01 71");  // pendente
+  h.elm.on_mode(0x0A, "4A 01 04 20");  // permanente
+
+  TEST_ASSERT_EQUAL_STRING("P0301",
+      h.client.read_dtcs(kanri::obd::DtcKind::Stored).items[0].text);
+  TEST_ASSERT_EQUAL_STRING("P0171",
+      h.client.read_dtcs(kanri::obd::DtcKind::Pending).items[0].text);
+  TEST_ASSERT_EQUAL_STRING("P0420",
+      h.client.read_dtcs(kanri::obd::DtcKind::Permanent).items[0].text);
+}
+
+// "Nenhum codigo" e uma boa noticia; "nao consegui ler" nao e. As duas
+// devolvem lista vazia, e quem chama precisa poder distinguir.
+void test_sem_codigos_e_diferente_de_falha_na_leitura(void) {
+  {
+    Elm h;
+    h.elm.on_mode(0x03, "43 00");  // a ECU respondeu: zero codigos
+    const auto l = h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+    TEST_ASSERT_EQUAL_UINT8(0, l.count);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseStatus::Ok),
+                          static_cast<int>(h.client.last_dtc_status()));
+  }
+  {
+    Elm h;
+    h.elm.mute_next(5);  // adaptador mudo: nao sabemos se ha codigos
+    const auto l = h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+    TEST_ASSERT_EQUAL_UINT8(0, l.count);
+    TEST_ASSERT_NOT_EQUAL_INT(static_cast<int>(ParseStatus::Ok),
+                              static_cast<int>(h.client.last_dtc_status()));
+  }
+}
+
+// A allowlist vale aqui tambem: o Modo 04 (limpar) nunca sai.
+void test_leitura_de_dtc_nao_abre_caminho_para_limpar(void) {
+  Elm h;
+  h.elm.clear_written();
+  // Nenhum DtcKind mapeia para 0x04 — mas garantimos pela consequencia:
+  // depois de ler os tres tipos, nada com "04" foi ao barramento.
+  h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+  h.client.read_dtcs(kanri::obd::DtcKind::Pending);
+  h.client.read_dtcs(kanri::obd::DtcKind::Permanent);
+
+  const std::string& enviado = h.elm.written();
+  TEST_ASSERT_TRUE(enviado.find("04") == std::string::npos);
+}
+
+void test_dtc_sem_conexao_e_com_falha_de_escrita(void) {
+  {
+    Elm h;
+    h.elm.disconnect();
+    const auto l = h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+    TEST_ASSERT_EQUAL_UINT8(0, l.count);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseStatus::UnableToConnect),
+                          static_cast<int>(h.client.last_dtc_status()));
+  }
+  {
+    Elm h;
+    h.elm.fail_write_next(1);
+    h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseStatus::UnableToConnect),
+                          static_cast<int>(h.client.last_dtc_status()));
+  }
+}
+
+// Resposta corrompida e passageira: vale tentar de novo.
+void test_dtc_corrompido_gera_retentativa(void) {
+  Elm h;
+  h.elm.on_mode(0x03, "43 01 03 01");
+  h.elm.corrupt_next(1);
+  h.elm.clear_written();
+
+  const auto l = h.client.read_dtcs(kanri::obd::DtcKind::Stored);
+  TEST_ASSERT_EQUAL_UINT8(1, l.count);
+  TEST_ASSERT_EQUAL_INT(2, h.elm.command_count());
+}
+
+// ---------------------------------------------------------------------------
 //  ENTRADAS DEGENERADAS
 // ---------------------------------------------------------------------------
 //  Estes casos nao acontecem no fluxo normal, mas acontecem quando alguem usa
@@ -531,6 +638,14 @@ int main() {
   RUN_TEST(test_tensao_fora_da_faixa_fisica_e_recusada);
   RUN_TEST(test_allowlist_vale_mesmo_com_adaptador_respondendo);
   RUN_TEST(test_send_at_tambem_respeita_a_allowlist);
+  RUN_TEST(test_le_codigos_de_falha);
+  RUN_TEST(test_modo_de_dtc_e_pedido_sem_pid);
+  RUN_TEST(test_le_os_tres_tipos_de_codigo);
+  RUN_TEST(test_sem_codigos_e_diferente_de_falha_na_leitura);
+  RUN_TEST(test_leitura_de_dtc_nao_abre_caminho_para_limpar);
+  RUN_TEST(test_dtc_sem_conexao_e_com_falha_de_escrita);
+  RUN_TEST(test_dtc_corrompido_gera_retentativa);
+
   RUN_TEST(test_send_at_com_argumentos_invalidos);
   RUN_TEST(test_comando_longo_demais_e_barrado);
   RUN_TEST(test_buffer_pequeno_nao_contamina_a_proxima_leitura);

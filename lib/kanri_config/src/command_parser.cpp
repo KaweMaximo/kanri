@@ -68,6 +68,8 @@ constexpr Entrada kTabela[] = {
     {"padroes",    CommandAction::Defaults,      false, false},
     {"restart",    CommandAction::Restart,       false, false},
     {"reiniciar",  CommandAction::Restart,       false, false},
+    {"dtc",        CommandAction::ReadDtc,       false, false},
+    {"falhas",     CommandAction::ReadDtc,       false, false},
     {"nome",       CommandAction::SetName,       true,  false},
     {"name",       CommandAction::SetName,       true,  false},
     {"mac",        CommandAction::SetMac,        true,  false},
@@ -235,6 +237,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::Save:
     case CommandAction::Load:
     case CommandAction::Restart:
+    case CommandAction::ReadDtc:
       return false;
   }
   return false;
@@ -250,6 +253,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::Load:          return "Load";
     case CommandAction::Defaults:      return "Defaults";
     case CommandAction::Restart:       return "Restart";
+    case CommandAction::ReadDtc:       return "ReadDtc";
     case CommandAction::SetName:       return "SetName";
     case CommandAction::SetMac:        return "SetMac";
     case CommandAction::SetPin:        return "SetPin";
@@ -290,6 +294,7 @@ const char* const* help_lines() {
       "  status             mostra estado e configuracao",
       "  scan               forca uma nova varredura",
       "  reiniciar          reinicia o ESP32",
+      "  dtc                le os codigos de falha da ECU",
       nullptr,
   };
   return kAjuda;

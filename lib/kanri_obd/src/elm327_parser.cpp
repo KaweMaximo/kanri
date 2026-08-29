@@ -219,6 +219,124 @@ ParsedFrame parse_response(const char* raw, std::size_t raw_len,
   return result;
 }
 
+namespace {
+
+/// Interpreta uma linha hexadecimal de resposta SEM PID.
+///
+/// Diferente de parse_hex_line(): aqui o segundo byte e a CONTAGEM de codigos,
+/// nao um PID. Ela e consumida e nao entra em `data`.
+ParsedFrame parse_hex_line_no_pid(const char* line, std::size_t len,
+                                  std::uint8_t expected_mode) {
+  ParsedFrame frame;
+
+  for (std::size_t i = 0; i < len; ++i) {
+    if (!is_hex_digit(line[i])) {
+      frame.status = ParseStatus::InvalidCharacter;
+      return frame;
+    }
+  }
+  if ((len % 2) != 0) {
+    frame.status = ParseStatus::OddHexDigits;
+    return frame;
+  }
+
+  const std::size_t byte_count = len / 2;
+  // Precisamos ao menos do modo ecoado e do byte de contagem.
+  if (byte_count < 2) {
+    frame.status = ParseStatus::TooShort;
+    return frame;
+  }
+
+  const std::uint8_t mode = static_cast<std::uint8_t>(
+      (hex_value(line[0]) << 4) | hex_value(line[1]));
+  if (mode != static_cast<std::uint8_t>(expected_mode + 0x40)) {
+    frame.status = ParseStatus::UnexpectedMode;
+    return frame;
+  }
+
+  // Byte 1 e a contagem de codigos. Guardamos em `pid` por falta de campo
+  // melhor — quem chama sabe que, neste modo, ali esta a contagem.
+  const std::uint8_t contagem = static_cast<std::uint8_t>(
+      (hex_value(line[2]) << 4) | hex_value(line[3]));
+
+  const std::size_t payload = byte_count - 2;
+  if (payload > kMaxPayloadBytes) {
+    frame.status = ParseStatus::PayloadTooLong;
+    return frame;
+  }
+
+  frame.mode = mode;
+  frame.pid = contagem;
+  frame.length = static_cast<std::uint8_t>(payload);
+  for (std::size_t i = 0; i < frame.length; ++i) {
+    const std::size_t offset = 4 + (i * 2);
+    frame.data[i] = static_cast<std::uint8_t>(
+        (hex_value(line[offset]) << 4) | hex_value(line[offset + 1]));
+  }
+  frame.status = ParseStatus::Ok;
+  return frame;
+}
+
+}  // namespace
+
+ParsedFrame parse_mode_response(const char* raw, std::size_t raw_len,
+                                std::uint8_t expected_mode) {
+  ParsedFrame result;
+  result.status = ParseStatus::Empty;
+
+  if (raw == nullptr || raw_len == 0) return result;
+  if (raw_len > kMaxRawResponseBytes) {
+    result.status = ParseStatus::RawTooLong;
+    return result;
+  }
+
+  // O eco do comando, quando o adaptador esta com ATE1, e so o modo: "03".
+  char echo[3];
+  byte_to_hex(expected_mode, &echo[0]);
+  echo[2] = '\0';
+
+  ParseStatus pending_text = ParseStatus::Empty;
+  ParseStatus last_hex_error = ParseStatus::Empty;
+
+  std::size_t index = 0;
+  while (index < raw_len) {
+    const std::size_t start = index;
+    while (index < raw_len && raw[index] != '\r' && raw[index] != '\n') ++index;
+    const std::size_t segment_len = index - start;
+    while (index < raw_len && (raw[index] == '\r' || raw[index] == '\n')) ++index;
+    if (segment_len == 0) continue;
+
+    char line[kMaxLineBytes + 1];
+    const std::size_t line_len =
+        normalize(raw + start, segment_len, line, kMaxLineBytes);
+    if (line_len == kOverflow) {
+      pending_text = ParseStatus::BufferFull;
+      continue;
+    }
+    if (line_len == 0) continue;
+    if (std::strcmp(line, echo) == 0) continue;
+    if (is_ignorable(line)) continue;
+
+    ParseStatus text_status = ParseStatus::Empty;
+    if (try_text_status(line, text_status)) {
+      pending_text = text_status;
+      continue;
+    }
+
+    const ParsedFrame candidate =
+        parse_hex_line_no_pid(line, line_len, expected_mode);
+    if (candidate.ok()) return candidate;
+    last_hex_error = candidate.status;
+  }
+
+  if (pending_text != ParseStatus::Empty) {
+    result.status = pending_text;
+  } else if (last_hex_error != ParseStatus::Empty) {
+    result.status = last_hex_error;
+  }
+  return result;
+}
+
 bool is_transient(ParseStatus status) {
   switch (status) {
     // Vale repetir o mesmo pedido: o problema tende a passar.
