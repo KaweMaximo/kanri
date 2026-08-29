@@ -82,6 +82,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   brilho.
 
 ### Corrigido
+- **A ordem dos dígitos estava espelhada.** Para exibir `18.3` era preciso
+  digitar `seg 38.1`.
+
+  O ponto decimal acompanhava o dígito certo, o que descartou a fonte e
+  apontou direto para o mapeamento posição → registrador: o `Digit0` do chip
+  aciona o dígito da **esquerda** nesta ligação, não o da direita.
+
+  A conta estava **duplicada** em `render()` e `render_raw()` — o lugar
+  clássico onde uma cópia é corrigida e a outra fica para trás. Virou
+  `digit_register()`, função pura com teste, e a orientação da fiação virou
+  uma constante nomeada: é a única coisa a mudar se a próxima montagem for ao
+  contrário.
+
 - **O comando `seg` só piscava o valor.** A telemetria redesenha o mostrador
   10 vezes por segundo e apagava o texto escrito à mão em 100 ms. O operador
   via o valor aparecer e sumir, e concluía que o display estava com defeito —

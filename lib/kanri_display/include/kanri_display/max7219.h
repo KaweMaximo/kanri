@@ -136,6 +136,30 @@ std::uint8_t intensity_from_percent(std::uint8_t percent);
 //  "321", os fios estao todos bons e o painel mente em silencio — e a correcao
 //  e uma linha no HAL, nao um fio.
 
+// ---------------------------------------------------------------------------
+//  Orientacao da fiacao
+// ---------------------------------------------------------------------------
+//  Qual registrador Digit do chip corresponde ao digito da ESQUERDA depende
+//  de como o mostrador foi ligado, e nao ha como o firmware descobrir isso
+//  sozinho: o MAX7219 nao responde nada.
+//
+//  Confirmado na bancada em 29/08/2026, na montagem do Kanri: `seg 38.1`
+//  aparecia como "18.3". Ordem espelhada, com o ponto decimal acompanhando
+//  o digito certo — ou seja, um puro erro de mapeamento, nao de fonte.
+//
+//  Esta constante e a unica coisa a mudar se a proxima montagem for ao
+//  contrario.
+
+/// true quando o Digit0 do chip aciona o digito da ESQUERDA.
+constexpr bool kDigit0IsLeftmost = true;
+
+/// Traduz a posicao de LEITURA (0 = esquerda) no registrador do chip.
+///
+/// Mora aqui, e nao no HAL, porque estava duplicada em render() e
+/// render_raw() — duas copias da mesma conta e o lugar classico onde uma e
+/// corrigida e a outra nao.
+std::uint8_t digit_register(std::size_t reading_position);
+
 /// Um passo do autoteste.
 struct SegTestStep {
   std::uint8_t digits[kSegDigits] = {};  ///< Bytes crus, na ordem de LEITURA.
