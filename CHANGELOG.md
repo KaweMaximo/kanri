@@ -8,6 +8,39 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Barra de LEDs** — `leds 22,21,19` e `piscar`, com a varredura entrando no
+  autoteste.
+
+  Nasceu de "criar um comando para ficar piscando o GPIO", mas o objetivo
+  declarado é um **contagiro**: uma fileira de LEDs que acende conforme a
+  rotação sobe. Por isso o conceito nasceu como **barra**, e não como "um pino
+  piscando" — a estrutura já é a do shift-light.
+
+  A lista aceita vírgula e espaço, porque ninguém lembra qual é o certo e
+  errar isso não deveria custar uma tentativa. E **um pino ruim reprova a lista
+  inteira**: aceitar o resto deixaria metade dos LEDs funcionando e a outra
+  metade em silêncio — que é exatamente o que o `pin_guard` existe para
+  combater. Repetidos também são recusados: o mesmo pino duas vezes piscaria
+  fora de ritmo com ele mesmo e ninguém entenderia por quê.
+
+  **O `teste` passou a encadear a barra** depois do mostrador. Um comando só
+  confere o aparelho inteiro; dois separados dariam margem a esquecer o
+  segundo — e a fiação não conferida é a que falha no carro.
+
+  A varredura acende **um LED por vez**, que é o que localiza fio trocado:
+  com todos acesos, dois LEDs invertidos ficam indistinguíveis. Há teste
+  cobrando que a varredura cubra todos os LEDs, cada um exatamente uma vez.
+
+  Tudo isso roda na task do painel. Se estivesse no laço, o LED pararia de
+  piscar durante os 10 s de Bluetooth bloqueado — e quem estivesse conferindo
+  a fiação concluiria que o LED queimou.
+
+### Modificado
+- Comandos podem ter **argumento opcional**: `leds` sozinho mostra a barra
+  atual, `leds 22,21` define. Um comando em vez de dois evita a dúvida de qual
+  usar.
+
+### Adicionado
 - **Comando `gpio <pino> <0|1>`** para acionar um pino livre da bancada sem
   gravar firmware a cada teste.
 

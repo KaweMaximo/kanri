@@ -171,6 +171,13 @@ struct PainelCompartilhado {
   std::size_t teste_passo = kanri::display::kSegTestSteps;
   std::uint16_t pot_raw = 0;
   std::uint8_t pot_nivel = 0;
+
+  /// Barra de LEDs. Hoje serve para testar a fiacao; e a base do contagiro.
+  std::uint8_t barra[kanri::core::kMaxPinList] = {};
+  std::uint8_t barra_count = 0;
+  bool barra_piscando = false;
+  /// Passo da varredura de autoteste; 0xFF = parada.
+  std::uint8_t barra_teste = 0xFF;
 };
 
 portMUX_TYPE g_painel_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -636,6 +643,78 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::ReadDtc:
       ler_e_mostrar_dtcs();
       return;
+    case CommandAction::LedBar: {
+      static const std::uint8_t kOcupados[] = {kLedPin, kBotaoPin, kPotPin,
+                                               kSegDin, kSegClk,   kSegLoad};
+      if (cmd.text[0] == '\0') {
+        // Sem argumento: mostra a barra atual.
+        std::uint8_t n;
+        portENTER_CRITICAL(&g_painel_mux);
+        n = g_painel.barra_count;
+        portEXIT_CRITICAL(&g_painel_mux);
+        if (n == 0) {
+          Serial.println(F("[leds] nenhuma barra definida — use: leds 22,21,19"));
+          return;
+        }
+        Serial.print(F("[leds] barra:"));
+        for (std::uint8_t i = 0; i < n; ++i) {
+          Serial.printf(" %u", static_cast<unsigned>(g_painel.barra[i]));
+        }
+        Serial.println();
+        return;
+      }
+
+      const auto lista = kanri::core::parse_pin_list(
+          cmd.text, kOcupados, sizeof(kOcupados) / sizeof(kOcupados[0]));
+
+      if (!lista.ok()) {
+        // A lista INTEIRA e recusada quando um pino e ruim. Aceitar o resto
+        // deixaria metade dos LEDs funcionando e a outra metade em silencio.
+        Serial.printf("[leds] recusado: %s",
+                      kanri::core::to_string(lista.error));
+        if (lista.error == kanri::core::PinListError::BadPin ||
+            lista.error == kanri::core::PinListError::Duplicate) {
+          Serial.printf(" (GPIO %u: %s)", static_cast<unsigned>(lista.offending),
+                        kanri::core::to_string(lista.verdict));
+        }
+        Serial.println();
+        return;
+      }
+
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.barra_count = static_cast<std::uint8_t>(lista.count);
+      for (std::size_t i = 0; i < lista.count; ++i) {
+        g_painel.barra[i] = lista.pins[i];
+      }
+      g_painel.barra_piscando = false;
+      g_painel.barra_teste = 0xFF;  // 0xFF = varredura parada
+      portEXIT_CRITICAL(&g_painel_mux);
+
+      for (std::size_t i = 0; i < lista.count; ++i) {
+        pinMode(lista.pins[i], OUTPUT);
+        digitalWrite(lista.pins[i], LOW);
+      }
+      Serial.printf("[leds] barra com %u LEDs — use 'piscar' ou 'teste'\n",
+                    static_cast<unsigned>(lista.count));
+      return;
+    }
+    case CommandAction::LedBlink: {
+      bool ligou = false;
+      portENTER_CRITICAL(&g_painel_mux);
+      if (g_painel.barra_count > 0) {
+        g_painel.barra_piscando = !g_painel.barra_piscando;
+        ligou = g_painel.barra_piscando;
+      }
+      const std::uint8_t n = g_painel.barra_count;
+      portEXIT_CRITICAL(&g_painel_mux);
+
+      if (n == 0) {
+        Serial.println(F("[leds] defina a barra primeiro: leds 22,21,19"));
+        return;
+      }
+      Serial.printf("[leds] piscar %s\n", ligou ? "LIGADO" : "desligado");
+      return;
+    }
     case CommandAction::GpioWrite: {
       // Os pinos que ESTE firmware ja usa. Ficam aqui, junto das constantes,
       // porque e aqui que a alocacao mora — o pin_guard e generico e nao
@@ -697,6 +776,7 @@ void executar(const kanri::config::ParsedCommand& cmd) {
       portENTER_CRITICAL(&g_painel_mux);
       g_painel.manual = false;
       g_painel.teste_passo = 0;
+      g_painel.barra_piscando = false;  // a varredura manda, nao o piscar
       portEXIT_CRITICAL(&g_painel_mux);
       Serial.println(F("[7seg] autoteste — confira cada passo no mostrador"));
       return;
@@ -873,6 +953,65 @@ void painel_aplicar_brilho() {
   g_seg.set_intensity(atual);
 }
 
+/// Aciona a barra de LEDs: piscar ou varredura de autoteste.
+///
+/// Roda na task do painel pelo mesmo motivo do resto: se ficasse no laco, o
+/// LED pararia de piscar durante os 10 s de Bluetooth bloqueado — e quem
+/// estivesse conferindo a fiacao concluiria que o LED queimou.
+void painel_barra() {
+  PainelCompartilhado c;
+  portENTER_CRITICAL(&g_painel_mux);
+  c = g_painel;
+  portEXIT_CRITICAL(&g_painel_mux);
+
+  if (c.barra_count == 0) return;
+
+  std::uint8_t mascara;
+
+  if (c.barra_teste != 0xFF) {
+    // Varredura: um LED por vez. Segura cada passo por 600 ms, senao nao da
+    // tempo de olhar qual acendeu.
+    static std::uint32_t ultimo = 0;
+    const std::uint32_t agora = millis();
+    if (ultimo != 0 && kanri::core::elapsed_ms(agora, ultimo) < 600) return;
+    ultimo = agora;
+
+    const std::size_t passos = kanri::core::bar_test_steps(c.barra_count);
+    if (c.barra_teste >= passos) {
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.barra_teste = 0xFF;
+      portEXIT_CRITICAL(&g_painel_mux);
+      Serial.println(F("[leds] varredura concluida"));
+      return;
+    }
+
+    mascara = kanri::core::bar_test_mask(c.barra_teste, c.barra_count);
+    if (c.barra_teste < c.barra_count) {
+      Serial.printf("[leds] passo %u/%u: so o LED do GPIO %u\n",
+                    static_cast<unsigned>(c.barra_teste + 1),
+                    static_cast<unsigned>(passos),
+                    static_cast<unsigned>(c.barra[c.barra_teste]));
+    } else if (c.barra_teste == c.barra_count) {
+      Serial.printf("[leds] passo %u/%u: TODOS acesos\n",
+                    static_cast<unsigned>(c.barra_teste + 1),
+                    static_cast<unsigned>(passos));
+    }
+
+    portENTER_CRITICAL(&g_painel_mux);
+    ++g_painel.barra_teste;
+    portEXIT_CRITICAL(&g_painel_mux);
+
+  } else if (c.barra_piscando) {
+    mascara = kanri::core::bar_blink_mask(millis(), c.barra_count);
+  } else {
+    return;  // parada: nao mexe, para nao desfazer um `gpio` manual
+  }
+
+  for (std::uint8_t i = 0; i < c.barra_count; ++i) {
+    digitalWrite(c.barra[i], ((mascara >> i) & 1U) ? HIGH : LOW);
+  }
+}
+
 /// Um quadro do painel.
 void painel_desenhar() {
   PainelCompartilhado copia;
@@ -900,6 +1039,12 @@ void painel_desenhar() {
     portEXIT_CRITICAL(&g_painel_mux);
     if (copia.teste_passo + 1 >= kanri::display::kSegTestSteps) {
       Serial.println(F("[7seg] autoteste concluido"));
+      // Encadeia a barra de LEDs, se houver. Um `teste` so confere o
+      // aparelho inteiro; dois comandos separados dariam margem a esquecer o
+      // segundo — e a fiacao nao conferida e a que falha no carro.
+      portENTER_CRITICAL(&g_painel_mux);
+      if (g_painel.barra_count > 0) g_painel.barra_teste = 0;
+      portEXIT_CRITICAL(&g_painel_mux);
     }
     return;
   }
@@ -958,6 +1103,7 @@ void tarefa_painel(void*) {
     painel_ler_potenciometro();
     painel_ler_botao();
     painel_aplicar_brilho();
+    painel_barra();
     painel_desenhar();
     vTaskDelay(pdMS_TO_TICKS(kPainelPeriodoMs));
   }

@@ -381,7 +381,8 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetUnits, CommandAction::ReadDtc,
       CommandAction::SegTest, CommandAction::SegShow,
       CommandAction::SegAuto, CommandAction::PotStatus,
-      CommandAction::GpioWrite,
+      CommandAction::GpioWrite, CommandAction::LedBar,
+      CommandAction::LedBlink,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));
@@ -446,6 +447,30 @@ void test_comandos_do_mostrador_nao_alteram_configuracao(void) {
 
 // `gpio <pino> <valor>` precisa de DOIS numeros, e a ordem importa: trocar
 // pino por valor acionaria o pino errado sem nenhum aviso.
+// `leds` funciona com e sem argumento: sozinho mostra a barra, com lista
+// define. Um comando so em vez de dois evita a duvida de qual usar.
+void test_leds_aceita_argumento_opcional(void) {
+  const ParsedCommand vazio = parse_command("leds", 4);
+  TEST_ASSERT_TRUE(vazio.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::LedBar),
+                        static_cast<int>(vazio.action));
+  TEST_ASSERT_EQUAL_STRING("", vazio.text);
+
+  const char* linha = "leds 22,21,19";
+  const ParsedCommand com = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_TRUE(com.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::LedBar),
+                        static_cast<int>(com.action));
+  TEST_ASSERT_EQUAL_STRING("22,21,19", com.text);
+}
+
+void test_piscar_e_reconhecido(void) {
+  const ParsedCommand cmd = parse_command("piscar", 6);
+  TEST_ASSERT_TRUE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::LedBlink),
+                        static_cast<int>(cmd.action));
+}
+
 void test_gpio_le_dois_numeros_na_ordem(void) {
   const char* linha = "gpio 22 1";
   const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
@@ -517,6 +542,8 @@ int main() {
   RUN_TEST(test_ajuda_lista_os_comandos);
   RUN_TEST(test_toda_acao_aparece_na_ajuda);
   RUN_TEST(test_toda_palavra_listada_e_reconhecida);
+  RUN_TEST(test_leds_aceita_argumento_opcional);
+  RUN_TEST(test_piscar_e_reconhecido);
   RUN_TEST(test_gpio_le_dois_numeros_na_ordem);
   RUN_TEST(test_gpio_com_um_numero_so_e_recusado);
   RUN_TEST(test_gpio_com_texto_no_lugar_de_numero_e_recusado);
