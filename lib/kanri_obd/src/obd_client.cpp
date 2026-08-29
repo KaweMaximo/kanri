@@ -213,6 +213,70 @@ ParsedFrame ObdClient::read_pid(std::uint8_t mode, std::uint8_t pid) {
   return frame;  // acabaram as tentativas
 }
 
+DtcList ObdClient::read_dtcs(DtcKind kind) {
+  DtcList vazia;
+  const std::uint8_t modo = mode_for(kind);
+
+  // SEGURANCA: a mesma porta de sempre. Modos de DTC nao levam PID, e
+  // check_obd_request sabe disso.
+  //
+  // GCOVR_EXCL_START
+  // O corpo deste `if` e inalcancavel hoje, e a guarda FICA.
+  //
+  // mode_for() so devolve 0x03, 0x07 ou 0x0A — todos permitidos —, entao a
+  // checagem sempre passa. Ela existe porque e a mesma porta que TODO caminho
+  // de saida atravessa: no dia em que alguem acrescentar um DtcKind novo, ou
+  // mudar mode_for(), e ela que impede o modo novo de ir ao barramento sem
+  // passar pela allowlist.
+  //
+  // Remover uma barreira porque "hoje ela nao dispara" e exatamente como
+  // barreiras somem de projetos. Ver docs/SAFETY.md.
+  if (check_obd_request(modo, 0x00) != RequestVerdict::Allowed) {
+    ++rejected_;
+    last_dtc_status_ = ParseStatus::UnknownCommand;
+    return vazia;
+  }
+  // GCOVR_EXCL_STOP
+  if (!transport_.is_connected()) {
+    last_dtc_status_ = ParseStatus::UnableToConnect;
+    return vazia;
+  }
+
+  // O comando e SO o modo: "03", nao "0300". Mandar um PID junto seria
+  // malformado, e alguns adaptadores respondem "?" a isso.
+  char comando[3];
+  byte_to_hex(modo, &comando[0]);
+  comando[2] = '\0';
+
+  char resposta[kResponseBuffer];
+
+  for (std::uint8_t tentativa = 0; tentativa <= config_.max_retries;
+       ++tentativa) {
+    if (!write_command(comando)) {
+      last_dtc_status_ = ParseStatus::UnableToConnect;
+      return vazia;
+    }
+
+    const std::size_t n = read_until_prompt(resposta, sizeof(resposta),
+                                            config_.response_timeout_ms);
+    const ParsedFrame frame = parse_mode_response(resposta, n, modo);
+    last_dtc_status_ = frame.status;
+
+    if (frame.ok()) {
+      ++ok_;
+      return parse_dtc_response(frame, kind);
+    }
+
+    ++rejected_;
+
+    // "NO DATA" aqui e resposta legitima e boa: a ECU esta dizendo que NAO HA
+    // codigos. Nao e falha, e insistir nao mudaria nada.
+    if (frame.status == ParseStatus::NoData) return vazia;
+    if (!is_transient(frame.status)) return vazia;
+  }
+  return vazia;
+}
+
 bool ObdClient::read_adapter_voltage(float& out_volts) {
   char resposta[64];
   if (send_at("ATRV", resposta, sizeof(resposta)) == 0) return false;

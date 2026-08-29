@@ -101,6 +101,28 @@ ParsedFrame parse_response(const char* raw, std::size_t raw_len,
                            std::uint8_t expected_mode,
                            std::uint8_t expected_pid);
 
+/// Interpreta a resposta de um pedido SEM PID (modos 0x03, 0x07, 0x0A).
+///
+/// Esses modos sao pedidos sozinhos — "03\r", nao "0300\r" — e a ECU responde
+/// sem ecoar PID nenhum:
+///
+///     pedido:   03
+///     resposta: 43 02 01 43 03 01
+///               ^^ ^^ ^^^^^ ^^^^^
+///               |  |  DTC 1 DTC 2
+///               |  quantos codigos vem a seguir
+///               modo ecoado (03 + 0x40)
+///
+/// Usar parse_response() aqui faria o parser cobrar um PID que nao existe, e
+/// rejeitar o "02" (a contagem) como se fosse um PID errado.
+///
+/// O byte de contagem tambem e consumido: ele diz quantos codigos vem, e nao
+/// e dado. `data` recebe apenas os bytes dos codigos.
+///
+/// @param expected_mode  o modo PEDIDO (0x03, 0x07 ou 0x0A), nao o ecoado.
+ParsedFrame parse_mode_response(const char* raw, std::size_t raw_len,
+                                std::uint8_t expected_mode);
+
 /// true quando vale a pena repetir o mesmo pedido (falha passageira).
 /// false quando insistir e desperdicio (ex.: a ECU nao tem esse PID).
 bool is_transient(ParseStatus status);

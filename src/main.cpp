@@ -37,6 +37,7 @@
 #include "kanri_core/version.h"
 #include "kanri_obd/obd_client.h"
 #include "kanri_obd/pid_decoder.h"
+#include "kanri_obd/dtc.h"
 #include "kanri_obd/pid_support.h"
 #include "kanri_display/view_model.h"
 
@@ -429,6 +430,51 @@ auto sem_watchdog(F&& operacao) -> decltype(operacao()) {
   return resultado;
 }
 
+/// Le e imprime os codigos de falha dos tres tipos.
+///
+/// Distinguir os tres importa no diagnostico: um PENDENTE ainda pode sumir
+/// sozinho se o defeito nao se repetir; um GRAVADO ja acendeu a luz; e um
+/// PERMANENTE resiste ate a propria ECU confirmar que o problema acabou —
+/// e por isso que "apagar os codigos" nao resolve inspecao.
+void ler_e_mostrar_dtcs() {
+  if (!g_obd.ready()) {
+    Serial.println(F("[dtc] adaptador nao inicializado — conecte primeiro"));
+    return;
+  }
+
+  const kanri::obd::DtcKind tipos[] = {
+      kanri::obd::DtcKind::Stored,
+      kanri::obd::DtcKind::Pending,
+      kanri::obd::DtcKind::Permanent,
+  };
+
+  int total = 0;
+  for (const kanri::obd::DtcKind tipo : tipos) {
+    // A leitura de codigos pode demorar mais que uma leitura de PID: a ECU
+    // percorre a lista inteira antes de responder.
+    const auto lista = sem_watchdog([&] { return g_obd.read_dtcs(tipo); });
+    const char* rotulo = kanri::obd::to_string(tipo);
+
+    if (g_obd.last_dtc_status() != kanri::obd::ParseStatus::Ok) {
+      Serial.printf("[dtc] %s: nao consegui ler (%s)\n", rotulo,
+                    kanri::obd::to_string(g_obd.last_dtc_status()));
+      continue;
+    }
+    if (lista.count == 0) {
+      Serial.printf("[dtc] %s: nenhum\n", rotulo);
+      continue;
+    }
+    for (std::uint8_t i = 0; i < lista.count; ++i) {
+      Serial.printf("[dtc] %s: %s\n", rotulo, lista.items[i].text);
+      ++total;
+    }
+    if (lista.truncated) {
+      Serial.printf("[dtc] %s: ha mais codigos do que cabe na lista\n", rotulo);
+    }
+  }
+  Serial.printf("[dtc] total: %d codigo(s)\n", total);
+}
+
 void imprimir_status() {
   Serial.println(F("--- status ---"));
   Serial.printf("  estado      : %s\n", kanri::core::to_string(g_state));
@@ -485,6 +531,9 @@ void executar(const kanri::config::ParsedCommand& cmd) {
                              g_settings.adapter_pin);
       return;
     }
+    case CommandAction::ReadDtc:
+      ler_e_mostrar_dtcs();
+      return;
     case CommandAction::Restart:
       Serial.println(F("[cfg] reiniciando..."));
       Serial.flush();
@@ -721,6 +770,9 @@ void loop() {
       if (frame.ok()) {
         Serial.println(F("[obd] ECU respondeu — barramento vivo"));
         sem_watchdog([&] { descobrir_pids(); return true; });
+        // Ler os codigos uma vez ao conectar: e a informacao que o motorista
+        // quer saber assim que liga o aparelho, e nao muda a cada segundo.
+        ler_e_mostrar_dtcs();
         dispatch(kanri::core::AppEvent::VehicleLinkUp);
       } else {
         Serial.printf("[obd] sem resposta da ECU: %s\n",

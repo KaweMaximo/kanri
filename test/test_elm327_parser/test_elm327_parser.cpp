@@ -308,6 +308,80 @@ void test_status_corrompido_e_tratado_com_seguranca(void) {
   TEST_ASSERT_EQUAL_STRING("Unknown", kanri::obd::to_string(corrupted));
 }
 
+// ---------------------------------------------------------------------------
+//  RESPOSTA SEM PID (modos de codigo de falha)
+// ---------------------------------------------------------------------------
+//  Estes modos sao pedidos sozinhos e a ECU responde sem ecoar PID. O segundo
+//  byte e a CONTAGEM de codigos — usar o parser normal aqui faria ele cobrar
+//  um PID que nao existe e rejeitar a contagem como se fosse PID errado.
+
+static ParsedFrame parse_dtc_modo(const char* raw) {
+  return kanri::obd::parse_mode_response(raw, std::strlen(raw), 0x03);
+}
+
+void test_resposta_sem_pid_valida(void) {
+  // 43 = resposta ao modo 03; 02 = dois codigos; depois os quatro bytes.
+  const ParsedFrame f = parse_dtc_modo("43 02 03 01 04 20\r>");
+  assert_status(ParseStatus::Ok, f);
+  TEST_ASSERT_EQUAL_UINT8(0x43, f.mode);
+  TEST_ASSERT_EQUAL_UINT8(2, f.pid);      // aqui `pid` guarda a contagem
+  TEST_ASSERT_EQUAL_UINT8(4, f.length);   // e o byte de contagem NAO entra
+  TEST_ASSERT_EQUAL_UINT8(0x03, f.data[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x20, f.data[3]);
+}
+
+void test_resposta_sem_pid_sem_codigos(void) {
+  const ParsedFrame f = parse_dtc_modo("4300\r>");
+  assert_status(ParseStatus::Ok, f);
+  TEST_ASSERT_EQUAL_UINT8(0, f.pid);
+  TEST_ASSERT_EQUAL_UINT8(0, f.length);
+}
+
+void test_resposta_sem_pid_ignora_eco(void) {
+  // Com ATE1 o adaptador repete o comando, que aqui e so "03".
+  const ParsedFrame f = parse_dtc_modo("03\r43 01 01 71\r>");
+  assert_status(ParseStatus::Ok, f);
+  TEST_ASSERT_EQUAL_UINT8(2, f.length);
+}
+
+void test_resposta_sem_pid_recusas(void) {
+  assert_status(ParseStatus::NoData, parse_dtc_modo("NO DATA\r>"));
+  assert_status(ParseStatus::BusError, parse_dtc_modo("CAN ERROR\r>"));
+  assert_status(ParseStatus::Empty, parse_dtc_modo(">"));
+  assert_status(ParseStatus::Empty,
+                kanri::obd::parse_mode_response(nullptr, 0, 0x03));
+  assert_status(ParseStatus::Empty,
+                kanri::obd::parse_mode_response("4300", 0, 0x03));
+  // Modo ecoado errado: 47 e resposta ao 07, nao ao 03.
+  assert_status(ParseStatus::UnexpectedMode, parse_dtc_modo("4701 0171\r>"));
+  assert_status(ParseStatus::InvalidCharacter, parse_dtc_modo("43 0Z 01\r>"));
+  assert_status(ParseStatus::OddHexDigits, parse_dtc_modo("4302031\r>"));
+  assert_status(ParseStatus::TooShort, parse_dtc_modo("43\r>"));
+}
+
+void test_resposta_sem_pid_entrada_gigante(void) {
+  char raw[kanri::obd::kMaxRawResponseBytes + 10];
+  std::memset(raw, 'A', sizeof(raw));
+  assert_status(ParseStatus::RawTooLong,
+                kanri::obd::parse_mode_response(raw, sizeof(raw), 0x03));
+}
+
+void test_resposta_sem_pid_linha_longa_demais(void) {
+  char raw[kanri::obd::kMaxLineBytes + 20];
+  std::memset(raw, 'A', sizeof(raw) - 1);
+  raw[sizeof(raw) - 1] = '\0';
+  assert_status(ParseStatus::BufferFull, parse_dtc_modo(raw));
+}
+
+void test_resposta_sem_pid_payload_longo_demais(void) {
+  // 2 bytes de cabecalho + 33 de dados: um alem do que cabe.
+  char raw[4 + (33 * 2) + 1];
+  std::memcpy(raw, "4300", 4);
+  for (std::size_t i = 0; i < 33; ++i) std::memcpy(raw + 4 + (i * 2), "AA", 2);
+  raw[4 + (33 * 2)] = '\0';
+  assert_status(ParseStatus::PayloadTooLong, parse_dtc_modo(raw));
+}
+
 int main() {
   UNITY_BEGIN();
 
@@ -345,6 +419,14 @@ int main() {
 
   RUN_TEST(test_fuzz_deterministico_mantem_invariantes);
   RUN_TEST(test_politica_de_retentativa);
+  RUN_TEST(test_resposta_sem_pid_valida);
+  RUN_TEST(test_resposta_sem_pid_sem_codigos);
+  RUN_TEST(test_resposta_sem_pid_ignora_eco);
+  RUN_TEST(test_resposta_sem_pid_recusas);
+  RUN_TEST(test_resposta_sem_pid_entrada_gigante);
+  RUN_TEST(test_resposta_sem_pid_linha_longa_demais);
+  RUN_TEST(test_resposta_sem_pid_payload_longo_demais);
+
   RUN_TEST(test_to_string_cobre_todos_os_status);
   RUN_TEST(test_status_corrompido_e_tratado_com_seguranca);
 

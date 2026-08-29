@@ -80,6 +80,8 @@ void test_aceita_portugues_e_ingles(void) {
   assert_acao(CommandAction::Help, p("ajuda"));
   assert_acao(CommandAction::Help, p("?"));
   assert_acao(CommandAction::Restart, p("reiniciar"));
+  assert_acao(CommandAction::ReadDtc, p("dtc"));
+  assert_acao(CommandAction::ReadDtc, p("falhas"));
 }
 
 // Nome de adaptador pode ter espaco ("Android-Vlink BT"). O argumento e todo
@@ -330,7 +332,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::Defaults, CommandAction::Restart, CommandAction::SetName,
       CommandAction::SetMac, CommandAction::SetPin, CommandAction::SetInterval,
       CommandAction::SetTimeout, CommandAction::SetBrightness,
-      CommandAction::SetUnits,
+      CommandAction::SetUnits, CommandAction::ReadDtc,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));

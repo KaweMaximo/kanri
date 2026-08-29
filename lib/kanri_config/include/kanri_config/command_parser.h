@@ -51,6 +51,7 @@ enum class CommandAction : std::uint8_t {
   Load,           ///< Recarrega a configuracao da flash.
   Defaults,       ///< Volta aos valores de fabrica (nao grava sozinho).
   Restart,        ///< Reinicia o ESP32.
+  ReadDtc,        ///< Le os codigos de falha da ECU.
   SetName,        ///< Nome Bluetooth do adaptador.
   SetMac,         ///< MAC do adaptador ("" limpa).
   SetPin,         ///< PIN de pareamento.
