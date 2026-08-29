@@ -239,6 +239,93 @@ de 7 segmentos com todos os dígitos acesos puxa bem mais que esse regulador
 entrega. O MAX7219 quer **5 V**, e a corrente dos segmentos vem dele, não do
 ESP32 — que fala com ele apenas por três fios de sinal.
 
+## Revisão do esquema elétrico
+
+Esquema desenhado por Jose Rodrigues (29/08/2026): ELM327 por Bluetooth →
+ESP32-WROOM-32D → MAX7219 (SPI) → display 5361AS de 3 dígitos, botão no
+GPIO 17, alimentação por conversor buck.
+
+A topologia está correta. Os pontos abaixo são o que falta fechar antes de
+montar.
+
+### 🔴 Nível lógico: o ESP32 não alcança o MAX7219
+
+**Este é o problema mais importante, e ele não aparece na bancada.**
+
+| | Valor |
+|---|---|
+| `VIH` mínimo do MAX7219 (VCC = 5 V) | **3,5 V** |
+| `VOH` máximo do ESP32 | **3,3 V** |
+
+Os sinais `DIN`, `CLK` e `CS` saem do ESP32 **abaixo do que o MAX7219 exige
+para reconhecer nível alto**. Fora de especificação.
+
+Isso costuma "funcionar" na bancada porque o limiar real do chip fica abaixo
+do garantido — mas a margem depende de temperatura, e a cabine de um carro vai
+de −5 °C a 70 °C. O sintoma seria dígito trocado ou mostrador congelando de
+vez em quando: o tipo de defeito que consome fins de semana e que ninguém
+associa ao nível lógico.
+
+**Solução: um 74HCT125** (buffer quádruplo, ~R$ 3) nas três linhas de sinal.
+O sufixo **HCT** é o que importa — ele aceita entrada em nível TTL
+(`VIH` = 2,0 V), então lê os 3,3 V do ESP32 como alto e entrega 5 V ao
+MAX7219. Um 74HC**125** comum **não serve**: o HC tem `VIH` = 0,7 × VCC = 3,5 V,
+exatamente o problema que queremos resolver.
+
+Alternativa sem CI extra: alimentar o MAX7219 com **3,3 V**. Mas o `VCC`
+mínimo dele é **4,0 V** — fica fora de spec do outro lado, e o display perde
+brilho justamente onde ele mais precisa (sol direto).
+
+### ✅ LM2596HV em vez do MP2359 — a escolha certa
+
+| Conversor | Entrada máxima | Sobrevive no carro? |
+|---|---|---|
+| MP2359 | **24 V** | ❌ |
+| **LM2596HV** | **60 V** | ✅ |
+
+A rede de 12 V chega a **40 V+** num *load dump* (ver
+[SAFETY.md § 5](SAFETY.md#5-requisitos-elétricos--a-rede-de-12-v-é-hostil)).
+O MP2359 morre nesse evento; o LM2596HV atravessa. A diferença de preço
+(~R$ 35) é seguro barato — trocar o conversor queimado sai mais caro, e ele
+leva o ESP32 junto.
+
+### O que ainda falta no esquema
+
+Nenhum destes é opcional numa instalação permanente:
+
+| Item | Por quê |
+|---|---|
+| **Fusível 500 mA–1 A** | Na linha de +12 V, antes de tudo |
+| **Proteção de polaridade reversa** | Schottky em série, ou MOSFET-P *ideal diode* (menor queda) |
+| **TVS na entrada** (SMBJ26A / P6KE30A) | Mesmo 60 V não cobre transientes ISO 7637-2, que são rápidos e altos |
+| **10 µF + 100 nF no `V+` do MAX7219** | O datasheet é explícito. A multiplexação chaveia dezenas de mA; sem desacoplamento o ruído corrompe o próprio SPI |
+| **≥ 470 µF de bulk na saída 5 V** | O ESP32 puxa picos de ~500 mA no rádio Bluetooth |
+
+### Conferências que passaram
+
+- **5361AS é cátodo comum**, e o MAX7219 faz *sink* nos dígitos — compatíveis.
+- **`ISET` de 10 kΩ** dá ~37 mA por segmento, perto do máximo. Está bom: o
+  brilho é reduzido por software (o MAX7219 tem registro de intensidade), e é
+  melhor ter margem para o sol direto do que faltar.
+- **Botão no GPIO 17** com `INPUT_PULLUP`: o GPIO 17 tem pull-up interno e está
+  livre no WROOM-32. (No WROVER ele é usado pela PSRAM — mas a placa aqui é
+  WROOM.) O debounce está em `kanri_core/button.h`.
+- **GPIO 36 é *input-only* e sem pull-up interno.** Correto para leitura
+  analógica (medir a tensão da bateria por divisor resistivo); não serviria
+  para o botão.
+
+### Pinos SPI sugeridos
+
+O esquema não fixa quais GPIOs. Usando o VSPI padrão do ESP32:
+
+| Sinal | GPIO |
+|---|---|
+| `SCK` / CLK | 18 |
+| `DIN` / MOSI | 23 |
+| `CS` | 5 |
+
+Evite GPIO 6–11 (ligados à flash) e GPIO 0, 2, 12 e 15 (afetam o boot).
+
 ## Instalação permanente no veículo
 
 O objetivo é o aparelho ficar **ligado direto no carro**, acendendo com a
