@@ -63,6 +63,7 @@ enum class CommandAction : std::uint8_t {
   SegShow,        ///< Escreve um texto direto no mostrador (e SEGURA a tela).
   SegAuto,        ///< Devolve o mostrador a telemetria.
   PotStatus,      ///< Mostra a leitura crua do potenciometro de brilho.
+  GpioWrite,      ///< Aciona um GPIO livre: `gpio <pino> <0|1>`.
 };
 
 /// Por que a linha nao pode ser executada.
@@ -82,6 +83,10 @@ struct ParsedCommand {
   CommandError error = CommandError::None;
   char text[kMaxArgLen] = {};  ///< Argumento textual, quando houver.
   std::uint32_t number = 0;    ///< Argumento numerico, quando houver.
+  /// Segundo argumento numerico. Usado por `gpio <pino> <valor>`, onde os
+  /// dois numeros tem significados diferentes e juntar num so seria pedir
+  /// para alguem confundir a ordem.
+  std::uint32_t number2 = 0;
 
   bool ok() const { return error == CommandError::None; }
 };

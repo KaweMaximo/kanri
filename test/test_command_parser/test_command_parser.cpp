@@ -381,6 +381,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetUnits, CommandAction::ReadDtc,
       CommandAction::SegTest, CommandAction::SegShow,
       CommandAction::SegAuto, CommandAction::PotStatus,
+      CommandAction::GpioWrite,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));
@@ -443,6 +444,45 @@ void test_comandos_do_mostrador_nao_alteram_configuracao(void) {
   TEST_ASSERT_EQUAL_INT(0, std::memcmp(&antes, &s, sizeof(s)));
 }
 
+// `gpio <pino> <valor>` precisa de DOIS numeros, e a ordem importa: trocar
+// pino por valor acionaria o pino errado sem nenhum aviso.
+void test_gpio_le_dois_numeros_na_ordem(void) {
+  const char* linha = "gpio 22 1";
+  const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_TRUE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::GpioWrite),
+                        static_cast<int>(cmd.action));
+  TEST_ASSERT_EQUAL_UINT32(22, cmd.number);
+  TEST_ASSERT_EQUAL_UINT32(1, cmd.number2);
+}
+
+void test_gpio_com_um_numero_so_e_recusado(void) {
+  const char* linha = "gpio 22";
+  const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_FALSE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandError::MissingArgument),
+                        static_cast<int>(cmd.error));
+}
+
+void test_gpio_com_texto_no_lugar_de_numero_e_recusado(void) {
+  const char* a = "gpio 22 alto";
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandError::InvalidNumber),
+                        static_cast<int>(parse_command(a, std::strlen(a)).error));
+  const char* b = "gpio xx 1";
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandError::InvalidNumber),
+                        static_cast<int>(parse_command(b, std::strlen(b)).error));
+}
+
+// Espacos extras entre os numeros nao podem quebrar: quem digita dentro do
+// carro nao acerta espacamento.
+void test_gpio_tolera_espacos_extras(void) {
+  const char* linha = "gpio   22    0";
+  const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_TRUE(cmd.ok());
+  TEST_ASSERT_EQUAL_UINT32(22, cmd.number);
+  TEST_ASSERT_EQUAL_UINT32(0, cmd.number2);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_set_e_opcional);
@@ -477,6 +517,10 @@ int main() {
   RUN_TEST(test_ajuda_lista_os_comandos);
   RUN_TEST(test_toda_acao_aparece_na_ajuda);
   RUN_TEST(test_toda_palavra_listada_e_reconhecida);
+  RUN_TEST(test_gpio_le_dois_numeros_na_ordem);
+  RUN_TEST(test_gpio_com_um_numero_so_e_recusado);
+  RUN_TEST(test_gpio_com_texto_no_lugar_de_numero_e_recusado);
+  RUN_TEST(test_gpio_tolera_espacos_extras);
   RUN_TEST(test_to_string_cobre_tudo);
   RUN_TEST(test_comandos_do_mostrador);
   RUN_TEST(test_comando_auto_solta_o_mostrador);

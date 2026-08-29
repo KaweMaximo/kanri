@@ -7,6 +7,39 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Comando `gpio <pino> <0|1>`** para acionar um pino livre da bancada sem
+  gravar firmware a cada teste.
+
+  Nasceu de um pedido real — *"liga pra mim o GPIO 28"* — e o GPIO **28 não
+  existe** no ESP32. Nem 20, 24, 29, 30 e 31: são buracos na numeração do chip.
+
+  O problema não é o pedido, é que `digitalWrite(28, HIGH)` **compila sem
+  aviso e não faz nada**. Quem pediu vai medir um pino inexistente procurando
+  defeito na fiação.
+
+  Por isso o comando **recusa e explica**, em vez de aceitar em silêncio:
+
+  | Pinos | Motivo |
+  |---|---|
+  | 20, 24, 28–31 | não existem no ESP32 |
+  | 34, 35, 36, 39 | *input-only*: `pinMode(OUTPUT)` compila e o pino nunca muda |
+  | 6–11 | flash SPI: acionar trava o chip |
+  | 1, 3 | console USB: derrubaria o painel |
+  | 12 | *strapping*: impediria o boot |
+  | 2, 5, 17, 18, 23, 36 | já usados por este firmware |
+
+  Todas essas falham em **silêncio** ou de forma difícil de atribuir — é o que
+  torna a checagem um módulo testado (`kanri_core/pin_guard.h`) e não um `if`
+  na hora do comando. Quando duas razões se aplicam, prevalece a mais grave:
+  dizer "já usado pelo firmware" para um pino da flash esconderia que acioná-lo
+  trava o chip.
+
+- O parser passou a aceitar comandos com **dois argumentos numéricos**
+  (`number` e `number2`), separados de propósito: `gpio 22 1` tem dois números
+  com significados diferentes, e juntar num só seria pedir para alguém inverter
+  a ordem.
+
 ### Corrigido
 - **O painel web mostrava um contador de retentativas obsoleto.** Ele guardava
   o último `[retry] tentativa N` visto no log e nunca limpava ao recuperar,

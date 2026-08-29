@@ -43,6 +43,7 @@
 #include <cstring>
 
 #include "kanri_core/button.h"
+#include "kanri_core/pin_guard.h"
 #include "kanri_display/brightness_knob.h"
 #include "kanri_display/smoothing.h"
 #include "kanri_display/max7219.h"
@@ -635,6 +636,38 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::ReadDtc:
       ler_e_mostrar_dtcs();
       return;
+    case CommandAction::GpioWrite: {
+      // Os pinos que ESTE firmware ja usa. Ficam aqui, junto das constantes,
+      // porque e aqui que a alocacao mora — o pin_guard e generico e nao
+      // tem como saber.
+      static const std::uint8_t kOcupados[] = {kLedPin,  kBotaoPin, kPotPin,
+                                               kSegDin,  kSegClk,   kSegLoad};
+
+      if (cmd.number > 255) {
+        Serial.println(F("[gpio] pino fora da faixa"));
+        return;
+      }
+      const std::uint8_t pino = static_cast<std::uint8_t>(cmd.number);
+      const auto veredito = kanri::core::check_output_pin(
+          pino, kOcupados, sizeof(kOcupados) / sizeof(kOcupados[0]));
+
+      if (veredito != kanri::core::PinVerdict::Ok) {
+        // Recusa EXPLICITA. digitalWrite() num pino inexistente ou
+        // input-only compila, roda, nao da erro — e a pessoa vai medir um
+        // pino procurando defeito na fiacao. Ver kanri_core/pin_guard.h.
+        Serial.printf("[gpio] GPIO %u recusado: %s\n",
+                      static_cast<unsigned>(pino),
+                      kanri::core::to_string(veredito));
+        return;
+      }
+
+      const bool nivel = (cmd.number2 != 0);
+      pinMode(pino, OUTPUT);
+      digitalWrite(pino, nivel ? HIGH : LOW);
+      Serial.printf("[gpio] GPIO %u = %s\n", static_cast<unsigned>(pino),
+                    nivel ? "ALTO (3,3 V)" : "BAIXO (0 V)");
+      return;
+    }
     case CommandAction::PotStatus: {
       // Le na hora, sem esperar o intervalo: quem digitou o comando esta
       // com a mao no botao querendo ver o numero mexer.
