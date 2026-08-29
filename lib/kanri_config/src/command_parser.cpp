@@ -87,6 +87,8 @@ constexpr Entrada kTabela[] = {
     // digitos com um valor escolhido a mao.
     {"seg",        CommandAction::SegShow,       true,  false},
     {"mostrar",    CommandAction::SegShow,       true,  false},
+    // Solta o mostrador: volta a mostrar a telemetria do carro.
+    {"auto",       CommandAction::SegAuto,       false, false},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -247,6 +249,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::Restart:
     case CommandAction::SegTest:
     case CommandAction::SegShow:
+    case CommandAction::SegAuto:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -273,6 +276,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::SetUnits:      return "SetUnits";
     case CommandAction::SegTest:       return "SegTest";
     case CommandAction::SegShow:       return "SegShow";
+    case CommandAction::SegAuto:       return "SegAuto";
   }
   return "Unknown";
 }

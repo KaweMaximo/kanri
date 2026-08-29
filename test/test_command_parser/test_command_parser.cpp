@@ -334,6 +334,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetTimeout, CommandAction::SetBrightness,
       CommandAction::SetUnits, CommandAction::ReadDtc,
       CommandAction::SegTest, CommandAction::SegShow,
+      CommandAction::SegAuto,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));
@@ -366,6 +367,16 @@ void test_comandos_do_mostrador(void) {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::SegShow),
                         static_cast<int>(mostrar.action));
   TEST_ASSERT_EQUAL_STRING("13.8", mostrar.text);
+}
+
+// `auto` solta o mostrador de volta para a telemetria. Precisa ser um
+// comando proprio, e nao "seg auto", porque a decisao de quem manda na tela
+// mora no main.cpp — a unica parte sem cobertura — e ja produziu tres bugs.
+void test_comando_auto_solta_o_mostrador(void) {
+  const ParsedCommand cmd = parse_command("auto", 4);
+  TEST_ASSERT_TRUE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::SegAuto),
+                        static_cast<int>(cmd.action));
 }
 
 // "seg" sem texto nao tem o que mostrar. Recusar aqui e melhor do que apagar
@@ -420,6 +431,7 @@ int main() {
   RUN_TEST(test_ajuda_lista_os_comandos);
   RUN_TEST(test_to_string_cobre_tudo);
   RUN_TEST(test_comandos_do_mostrador);
+  RUN_TEST(test_comando_auto_solta_o_mostrador);
   RUN_TEST(test_mostrar_exige_texto);
   RUN_TEST(test_comandos_do_mostrador_nao_alteram_configuracao);
   return UNITY_END();
