@@ -20,13 +20,16 @@
 // ============================================================================
 
 #include <Arduino.h>
+#include <esp_system.h>
 #include <esp_task_wdt.h>
 
 #include "hal/arduino_clock.h"
-#include "hal/null_transport.h"
+#include "hal/bt_serial_transport.h"
+#include "hal/gpio_led.h"
 #include "hal/nvs_config_store.h"
 #include "hal/serial_display.h"
 #include "kanri_config/settings.h"
+#include "kanri_core/led_pattern.h"
 #include "kanri_core/retry_policy.h"
 #include "kanri_core/state_machine.h"
 #include "kanri_core/telemetry.h"
@@ -57,11 +60,22 @@ constexpr std::uint32_t kRenderIntervalMs = 500;
 constexpr std::uint32_t kRetryBaseMs = 1000;
 constexpr std::uint32_t kRetryMaxMs = 30000;
 
+// LED de status. Numa DevKit v1, o LED AZUL esta no GPIO 2 — e o unico
+// controlavel por software. O LED VERMELHO dessas placas costuma ser o de
+// ENERGIA: fica ligado direto no regulador, sem GPIO nenhum, e nao ha como
+// apaga-lo. Ver o comentario em src/hal/gpio_led.h.
+constexpr std::uint8_t kLedPin = 2;
+constexpr bool kLedAtivoBaixo = false;
+
+// Quanto tempo cada varredura Bluetooth dura.
+constexpr std::uint32_t kScanMs = 5000;
+
 // --- Adaptadores de hardware (as escolhas concretas da v0.1) --------------
 kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
 kanri::hal::NvsConfigStore g_config_store;
-kanri::hal::NullTransport g_transport;
+kanri::hal::BtSerialTransport g_transport("Kanri");
+kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
 
 // --- Estado da aplicacao ---------------------------------------------------
 //  Objetos globais com tempo de vida estatico, sem `new` em lugar nenhum.
@@ -76,6 +90,12 @@ std::uint32_t g_degraded_since_ms = 0;
 std::uint32_t g_last_render_ms = 0;
 /// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
 std::uint32_t g_retry_delay_ms = 0;
+/// Quando o estado atual comecou. E a origem de tempo do padrao do LED: sem
+/// isso, trocar de estado nao reiniciaria o desenho da piscada.
+std::uint32_t g_state_since_ms = 0;
+/// Quando a varredura atual comecou. Sem isso nao ha como saber a hora de
+/// encerrar um scan que roda em outra task.
+std::uint32_t g_scan_since_ms = 0;
 
 /// Ponto unico de entrada de eventos na maquina de estados.
 ///
@@ -87,6 +107,16 @@ void dispatch(kanri::core::AppEvent event) {
   g_state = kanri::core::next_state(previous, event);
 
   if (g_state == previous) return;  // evento ignorado: nao poluir o log
+
+  // Sair de ScanningAdapter por QUALQUER caminho encerra a varredura. Sem
+  // isso, o radio continuaria buscando em segundo plano depois que o estado
+  // ja mudou — gastando energia e entregando resultados fora de contexto.
+  if (previous == kanri::core::AppState::ScanningAdapter) {
+    g_transport.scan_stop();
+    g_scan_since_ms = 0;
+  }
+
+  g_state_since_ms = g_clock.now_ms();
 
   Serial.printf("[estado] %s --(%s)--> %s\n", kanri::core::to_string(previous),
                 kanri::core::to_string(event), kanri::core::to_string(g_state));
@@ -128,6 +158,39 @@ kanri::core::AppEvent load_configuration() {
   return kanri::core::AppEvent::ConfigLoaded;
 }
 
+/// Atualiza o LED conforme o padrao do estado atual.
+///
+/// Chamado a cada volta do loop: o padrao e uma funcao pura do tempo, entao
+/// basta perguntar "aceso agora?" e obedecer. Nenhum delay, nenhum contador
+/// espalhado pelo codigo.
+void atualizar_led() {
+  const std::uint32_t decorrido =
+      kanri::core::elapsed_ms(g_clock.now_ms(), g_state_since_ms);
+  g_led.set(kanri::core::led_should_be_on(g_state, decorrido));
+}
+
+/// Consolida a varredura, registra o que apareceu e decide o proximo evento.
+/// So e chamada depois de scan_stop(), quando nao ha mais callbacks em voo.
+kanri::core::AppEvent avaliar_varredura() {
+  const std::size_t achados = g_transport.result_count();
+  Serial.printf("[bt] %u dispositivo(s) no ar\n",
+                static_cast<unsigned>(achados));
+  for (std::size_t i = 0; i < achados; ++i) {
+    const auto& d = g_transport.results()[i];
+    Serial.printf("[bt]   %-24s %s  %d dBm\n",
+                  d.name[0] ? d.name : "(sem nome)", d.mac, d.rssi);
+  }
+
+  const auto escolha = g_transport.match();
+  Serial.printf("[bt] escolha: %s\n", kanri::obd::to_string(escolha.result));
+  if (!escolha.found()) return kanri::core::AppEvent::AdapterNotFound;
+
+  Serial.printf("[bt] alvo: %s (%s)\n",
+                g_transport.results()[escolha.index].name,
+                g_transport.results()[escolha.index].mac);
+  return kanri::core::AppEvent::AdapterFound;
+}
+
 void render_if_due() {
   const std::uint32_t now = g_clock.now_ms();
   if (kanri::core::elapsed_ms(now, g_last_render_ms) < kRenderIntervalMs) {
@@ -153,6 +216,12 @@ void setup() {
   Serial.println();
   Serial.printf("Kanri v%s — telemetria OBD2 (SOMENTE LEITURA)\n",
                 KANRI_VERSION_STRING);
+  // Por que a placa ligou? Distinguir "liguei na tomada" de "o watchdog me
+  // reiniciou" vale ouro: um reset por watchdog e sintoma de que alguma
+  // coisa bloqueou o loop, e sem este log ele passa despercebido.
+  Serial.printf("[boot] motivo do reset: %d (1=power-on 3=software "
+                "5=deep-sleep 6=brownout 7/8/9=watchdog)\n",
+                static_cast<int>(esp_reset_reason()));
   Serial.println(F("Alvo: Mitsubishi Lancer 2.0 2014 (4B11)"));
 
   // Watchdog: 8 s de prazo, com panic (reset) ao estourar.
@@ -162,6 +231,9 @@ void setup() {
                 static_cast<unsigned>(kWatchdogTimeoutSec));
 
   g_settings = kanri::config::default_settings();
+
+  g_led.begin();
+  Serial.printf("[led] status no GPIO %u\n", static_cast<unsigned>(kLedPin));
 
   if (!g_display.begin()) {
     // Sem tela nao ha como comunicar nada ao motorista: e o unico caminho
@@ -174,6 +246,17 @@ void setup() {
 
   (void)g_config_store.begin();
 
+  if (!g_transport.begin()) {
+    // Sem radio nao ha o que procurar. Nao e fatal: a maquina de estados vai
+    // degradar e retentar, e o LED comunica isso.
+    Serial.println(F("[bt] FALHA ao inicializar o Bluetooth"));
+  } else {
+    Serial.println(F("[bt] Bluetooth pronto (modo mestre)"));
+  }
+  g_transport.set_target(g_settings.adapter_name, g_settings.adapter_mac,
+                         g_settings.adapter_pin);
+
+  g_state_since_ms = g_clock.now_ms();
   dispatch(kanri::core::AppEvent::HardwareReady);
 }
 
@@ -187,21 +270,43 @@ void loop() {
       dispatch(load_configuration());
       break;
 
-    case kanri::core::AppState::ScanningAdapter:
-      // TODO(v0.2): varredura Bluetooth procurando g_settings.adapter_name
-      //             ou g_settings.adapter_mac.
-      // Na v0.1 o NullTransport nunca conecta — e o firmware segue para o
-      // caminho degradado, que e justamente o que queremos exercitar.
-      if (g_transport.connect()) {
-        dispatch(kanri::core::AppEvent::AdapterFound);
-      } else {
-        dispatch(kanri::core::AppEvent::AdapterNotFound);
+    case kanri::core::AppState::ScanningAdapter: {
+      // Varredura NAO bloqueante: o radio trabalha em outra task e este loop
+      // continua girando. E o que mantem o LED piscando durante a busca e o
+      // watchdog alimentado. Uma versao bloqueante de 5 s congelava o LED e
+      // fazia o ESP32 reiniciar pelo watchdog.
+      if (!g_transport.scan_active()) {
+        if (g_scan_since_ms == 0) {
+          Serial.printf("[bt] varrendo por %u ms, procurando \"%s\"...\n",
+                        static_cast<unsigned>(kScanMs), g_settings.adapter_name);
+          if (g_transport.scan_start()) {
+            g_scan_since_ms = g_clock.now_ms();
+          } else {
+            Serial.println(F("[bt] nao consegui iniciar a varredura"));
+            dispatch(kanri::core::AppEvent::AdapterNotFound);
+          }
+        } else {
+          // scan_start deu certo mas o radio ja encerrou por conta propria.
+          g_scan_since_ms = 0;
+          dispatch(avaliar_varredura());
+        }
+      } else if (kanri::core::elapsed_ms(g_clock.now_ms(), g_scan_since_ms) >=
+                 kScanMs) {
+        g_transport.scan_stop();
+        g_scan_since_ms = 0;
+        dispatch(avaliar_varredura());
       }
       break;
+    }
 
     case kanri::core::AppState::ConnectingAdapter:
-      // TODO(v0.2): abrir o canal SPP.
-      dispatch(kanri::core::AppEvent::AdapterLost);
+      if (g_transport.connect()) {
+        Serial.println(F("[bt] canal SPP aberto"));
+        dispatch(kanri::core::AppEvent::AdapterConnected);
+      } else {
+        Serial.println(F("[bt] nao consegui abrir o canal"));
+        dispatch(kanri::core::AppEvent::AdapterLost);
+      }
       break;
 
     case kanri::core::AppState::InitializingElm:
@@ -243,6 +348,7 @@ void loop() {
       break;
   }
 
+  atualizar_led();
   render_if_due();
 
   // Cede tempo ao scheduler do FreeRTOS. Sem isso, tarefas de sistema (rede,
