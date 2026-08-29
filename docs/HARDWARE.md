@@ -522,14 +522,14 @@ Do ADC1 e disponíveis nesta placa: **32, 33, 34, 35, `VP` (36), `VN` (39)**.
 
 ### Os três modos de falha, e o que faz cada um
 
-Um botão giratório no ADC parece trivial e não é. São **cinco níveis** (decisão
-do Kawe) mais dois filtros, e cada peça resolve um problema diferente:
+Um botão giratório no ADC parece trivial e não é. São **oito níveis** mais
+dois filtros, e cada peça resolve um problema diferente:
 
 | Problema | Sintoma no painel | O que resolve |
 |---|---|---|
-| ADC do ESP32 é ruidoso (±40 contagens parado) | mostrador **pulsa** com o botão imóvel | **5 níveis**: cada faixa tem ~819 contagens, muito acima do ruído |
-| Ruído exatamente na fronteira entre faixas | pisca entre **dois** brilhos, só numa posição | **histerese** de 150 contagens para sair da faixa |
-| GPIO 36 sem potenciômetro ligado | brilho **passeia sozinho** | **6 leituras** concordando, ancoradas na primeira |
+| ADC do ESP32 é ruidoso (±40 contagens parado) | mostrador **pulsa** com o botão imóvel | **8 níveis**: cada faixa tem 512 contagens, muito acima do ruído |
+| Ruído exatamente na fronteira entre faixas | pisca entre **dois** brilhos, só numa posição | **histerese** de 90 contagens para sair da faixa |
+| GPIO 36 sem potenciômetro ligado | brilho **passeia sozinho** | **8 leituras** concordando, ancoradas na primeira |
 
 O terceiro é o menos óbvio. O GPIO 36 não tem *pull-up* interno: sem o fio,
 vira antena. E o discriminador não é o valor lido — é a **estabilidade**. Um
@@ -540,13 +540,19 @@ a escala inteira entre amostras.
 > aproxima um pino solto do meio da escala, e aí lixo passa a parecer posição
 > estável. O filtro precisa **ver** o ruído para poder rejeitá-lo.
 
-### Os cinco níveis não são lineares
+### Os oito níveis não são lineares
 
 ```
-nível 1 →   3 %      nível 4 →  60 %
-nível 2 →  12 %      nível 5 → 100 %
-nível 3 →  30 %
+nível 1 →  2 %    nível 5 →  30 %
+nível 2 →  5 %    nível 6 →  48 %
+nível 3 → 10 %    nível 7 →  72 %
+nível 4 → 18 %    nível 8 → 100 %
 ```
+
+Os oito caem em **oito intensidades distintas** do MAX7219 (0, 1, 2, 3, 5, 7,
+11 e 15 dos 16 passos do chip). Nenhum degrau desperdiçado: dois níveis na
+mesma intensidade dariam duas posições do botão com brilho idêntico, e isso
+seria lido como zona morta do potenciômetro — ou seja, defeito.
 
 A percepção de brilho é aproximadamente logarítmica. `20/40/60/80/100`
 desperdiçaria três passos na faixa clara — justamente onde a diferença menos
@@ -554,6 +560,26 @@ aparece — e não deixaria nenhum ajuste útil para dirigir à noite.
 
 O nível 1 em 3 % **não apaga**: é o passo mais fraco do MAX7219 (1/32 do
 ciclo). Um nível que apagasse o painel seria indistinguível de defeito.
+
+### O atraso do botão não vinha do filtro
+
+A primeira versão demorava **1,2 s** para o brilho acompanhar o giro, e é
+tentador culpar as confirmações. Não eram elas: eram `6 × 200 ms` de
+**intervalo entre leituras**.
+
+O intervalo alto não comprava nada. `analogRead()` custa ~100 µs — mesmo
+amostrando a cada 20 ms, é 0,5 % do tempo. Baixando para 20 ms:
+
+| | Antes | Agora |
+|---|---|---|
+| Intervalo | 200 ms | **20 ms** |
+| Confirmações | 6 | **8** |
+| Resposta ao giro | 1200 ms | **160 ms** |
+| Rejeição de pino solto | — | **mais forte** |
+
+Ficou 7,5× mais rápido **e** mais seguro. Vale como lição geral: antes de
+afrouxar uma proteção para ganhar velocidade, confira se a lentidão vem
+mesmo dela.
 
 ### Conferindo a fiação
 

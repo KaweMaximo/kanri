@@ -99,9 +99,16 @@ constexpr std::uint8_t kBotaoPin = 17;
 //   - e input-only, entao nao desperdica um pino que sirva para outra coisa.
 constexpr std::uint8_t kPotPin = 36;
 
-// De quanto em quanto tempo o botao e lido. Ninguem gira mais rapido que
-// isso, e ler o ADC no laco todo so gastaria tempo do barramento OBD.
-constexpr std::uint32_t kPotIntervalMs = 200;
+// De quanto em quanto tempo o botao e lido.
+//
+// Foi 200 ms, e era o que fazia o brilho demorar 1,2 s para acompanhar o
+// giro. O intervalo alto nao comprava nada: analogRead() custa ~100 us, ou
+// seja 0,5% do tempo mesmo a 20 ms.
+//
+// Baixando para 20 ms, a resposta caiu para ~160 ms — imperceptivel — e
+// ainda sobrou folga para SUBIR as confirmacoes de 6 para 8, deixando a
+// rejeicao de pino solto mais forte do que era. Ver brightness_knob.h.
+constexpr std::uint32_t kPotIntervalMs = 20;
 
 // De quanto em quanto tempo o mostrador do carro e redesenhado. Mais rapido
 // que o texto porque o piscar do alerta precisa de resolucao.
