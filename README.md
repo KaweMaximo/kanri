@@ -168,6 +168,19 @@ pio run -e esp32dev -t upload
 pio device monitor          # 115200 baud
 ```
 
+### 5. Ou use o painel
+
+```bash
+./start.sh                  # abre http://127.0.0.1:8765
+```
+
+Um painel web local que mostra o **estado do firmware ao vivo** (lido dos logs
+da máquina de estados), o log serial com carimbo de tempo, e botões para
+gravar, reiniciar, compilar e rodar os testes — sem decorar comando nenhum.
+
+Ele escuta **apenas em `127.0.0.1`**, porque executa comandos na sua máquina.
+Detalhes em [`tools/kanri-console/`](tools/kanri-console/).
+
 ### Atalhos úteis
 
 | Comando | O que faz |
@@ -199,7 +212,11 @@ kanri/
 │
 ├── test/                   # TESTES — rodam no PC
 │   ├── helpers/            # dublês (FakeClock, FakeTransport, …)
-│   └── test_*/             # 6 suítes, 122 casos
+│   └── test_*/             # 6 suítes, 125 casos
+│
+├── start.sh                # sobe o painel de desenvolvimento
+├── tools/
+│   └── kanri-console/      # painel web local (estado, logs, gravar, reiniciar)
 │
 └── docs/
     ├── SAFETY.md           # ⚠️ requisitos de segurança — leia primeiro
