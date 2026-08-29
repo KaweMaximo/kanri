@@ -7,6 +7,21 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Mapa de pinos da ESP32 DevKit V1 (30 pinos)** em `docs/HARDWARE.md`, com a
+  alocação completa para acionar o display de 7 segmentos direto pelos GPIOs.
+
+  Separa o que **não pode** ser usado por motivo físico do que é só
+  preferência: `RX0`/`TX0` derrubam o console, o `D12` impede o boot, e
+  `D34`, `D35`, `VP` e `VN` são *input-only* — `pinMode(34, OUTPUT)` compila,
+  roda, não dá erro e o pino nunca muda de nível.
+
+  Inclui o orçamento de corrente dos pinos de dígito comum, onde passa a
+  **soma** dos segmentos acesos: com resistor de 220 Ω dá 48 mA, acima do
+  máximo absoluto de 40 mA do GPIO. Com 1 kΩ dá 10 mA. É o número que torna o
+  resistor de 1 kΩ obrigatório no acionamento direto, e não uma escolha de
+  brilho.
+
 ### Corrigido
 - **O backoff de reconexão ficava preso no teto de 30 s para sempre.** O
   `main.cpp` nunca chamava `RetryPolicy::on_success()`, então o contador de
