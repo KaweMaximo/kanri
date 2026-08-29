@@ -64,6 +64,8 @@ enum class CommandAction : std::uint8_t {
   SegAuto,        ///< Devolve o mostrador a telemetria.
   PotStatus,      ///< Mostra a leitura crua do potenciometro de brilho.
   GpioWrite,      ///< Aciona um GPIO livre: `gpio <pino> <0|1>`.
+  LedBar,         ///< Define a barra de LEDs: `leds 22,21,19`.
+  LedBlink,       ///< Liga/desliga o piscar da barra.
 };
 
 /// Por que a linha nao pode ser executada.

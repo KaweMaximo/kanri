@@ -96,6 +96,10 @@ constexpr Entrada kTabela[] = {
     {"pot",        CommandAction::PotStatus,     false, false, false},
     // Acionar um pino livre da bancada, sem gravar firmware a cada teste.
     {"gpio",       CommandAction::GpioWrite,     true,  false, true},
+    // Barra de LEDs: hoje serve para testar a fiacao, e e a base do
+    // contagiro. Sem argumento, mostra a barra atual.
+    {"leds",       CommandAction::LedBar,        false, false, false},
+    {"piscar",     CommandAction::LedBlink,      false, false, false},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -171,7 +175,15 @@ ParsedCommand parse_command(const char* line, std::size_t len) {
     ParsedCommand comando;
     comando.action = kTabela[i].acao;
 
-    if (!kTabela[i].precisa_argumento) return comando;
+    if (!kTabela[i].precisa_argumento) {
+      // Argumento OPCIONAL: comandos como `leds` funcionam sozinhos (mostram
+      // o estado) e tambem com lista (definem). Copiar quando existe custa
+      // nada e evita uma terceira categoria na tabela.
+      if (arg_len > 0 && arg_len < kMaxArgLen) {
+        copiar(comando.text, sizeof(comando.text), line + arg_ini, arg_len);
+      }
+      return comando;
+    }
 
     // `mac` aceita argumento vazio: e assim que se limpa o MAC fixado.
     if (arg_len == 0 && kTabela[i].acao != CommandAction::SetMac) {
@@ -293,6 +305,8 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::SegAuto:
     case CommandAction::PotStatus:
     case CommandAction::GpioWrite:
+    case CommandAction::LedBar:
+    case CommandAction::LedBlink:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -322,6 +336,8 @@ const char* to_string(CommandAction action) {
     case CommandAction::SegAuto:       return "SegAuto";
     case CommandAction::PotStatus:     return "PotStatus";
     case CommandAction::GpioWrite:     return "GpioWrite";
+    case CommandAction::LedBar:        return "LedBar";
+    case CommandAction::LedBlink:      return "LedBlink";
   }
   return "Unknown";
 }
@@ -365,6 +381,9 @@ const char* const* help_lines() {
       "  auto               devolve a tela para a telemetria",
       "  pot                leitura crua do potenciometro de brilho",
       "  gpio <pino> <0|1>  aciona um pino livre (recusa os ocupados)",
+      "barra de LEDs (base do contagiro):",
+      "  leds 22,21,19      define a barra; sem argumento, mostra a atual",
+      "  piscar             liga/desliga o piscar da barra",
       nullptr,
   };
   return kAjuda;
