@@ -325,6 +325,52 @@ void test_ajuda_lista_os_comandos(void) {
   TEST_ASSERT_GREATER_THAN_INT(8, n);
 }
 
+// A REGRA COBRADA PELA MAQUINA: toda ACAO tem que aparecer na ajuda.
+//
+// Por acao, e nao por palavra: `help` e `ajuda` fazem a mesma coisa, e
+// documentar as duas seria ruido. Mas uma acao cujas palavras nenhuma
+// aparece na ajuda e uma acao que so quem escreveu conhece.
+//
+// Aconteceu com `teste`, `seg` e `auto`: foram adicionados, funcionavam, e
+// o usuario nao tinha como descobrir que existiam. Agora quebra o CI.
+void test_toda_acao_aparece_na_ajuda(void) {
+  const kanri::config::CommandWord* palavras = kanri::config::command_words();
+  TEST_ASSERT_NOT_NULL(palavras);
+
+  for (std::size_t i = 0; palavras[i].word != nullptr; ++i) {
+    // `None` nao e comando digitavel.
+    if (palavras[i].action == CommandAction::None) continue;
+
+    bool documentada = false;
+    // Qualquer palavra desta acao servindo ja documenta a acao.
+    for (std::size_t j = 0; palavras[j].word != nullptr && !documentada; ++j) {
+      if (palavras[j].action != palavras[i].action) continue;
+      for (const char* const* l = kanri::config::help_lines(); *l; ++l) {
+        if (std::strstr(*l, palavras[j].word) != nullptr) {
+          documentada = true;
+          break;
+        }
+      }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(documentada, palavras[i].word);
+  }
+}
+
+// E o contrario: toda palavra listada precisa mesmo ser aceita pelo parser.
+// Ajuda que documenta comando inexistente e pior do que ajuda faltando.
+void test_toda_palavra_listada_e_reconhecida(void) {
+  const kanri::config::CommandWord* palavras = kanri::config::command_words();
+  for (std::size_t i = 0; palavras[i].word != nullptr; ++i) {
+    const ParsedCommand cmd =
+        parse_command(palavras[i].word, std::strlen(palavras[i].word));
+    TEST_ASSERT_NOT_EQUAL_MESSAGE(
+        static_cast<int>(CommandError::UnknownCommand),
+        static_cast<int>(cmd.error), palavras[i].word);
+    // A acao nao e conferida aqui: comandos que exigem argumento devolvem
+    // MissingArgument sem preencher a acao, e isso e o comportamento certo.
+  }
+}
+
 void test_to_string_cobre_tudo(void) {
   const CommandAction acoes[] = {
       CommandAction::None, CommandAction::Help, CommandAction::Status,
@@ -429,6 +475,8 @@ int main() {
   RUN_TEST(test_nenhum_comando_deixa_a_configuracao_invalida);
   RUN_TEST(test_fuzz_de_linhas_aleatorias);
   RUN_TEST(test_ajuda_lista_os_comandos);
+  RUN_TEST(test_toda_acao_aparece_na_ajuda);
+  RUN_TEST(test_toda_palavra_listada_e_reconhecida);
   RUN_TEST(test_to_string_cobre_tudo);
   RUN_TEST(test_comandos_do_mostrador);
   RUN_TEST(test_comando_auto_solta_o_mostrador);

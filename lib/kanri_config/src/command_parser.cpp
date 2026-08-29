@@ -93,6 +93,22 @@ constexpr Entrada kTabela[] = {
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
 
+// A lista das palavras aceitas, terminada em nullptr.
+//
+// Existe para o TESTE poder cobrar que todo comando esteja documentado. Sem
+// isso, um comando novo nasce invisivel: funciona, mas ninguem descobre que
+// existe — foi o que aconteceu com `teste`, `seg` e `auto`, adicionados sem
+// entrar na ajuda nem na dica do painel.
+const CommandWord* command_words_impl() {
+  static CommandWord palavras[kTabelaLen + 1] = {};
+  for (std::size_t i = 0; i < kTabelaLen; ++i) {
+    palavras[i].word = kTabela[i].palavra;
+    palavras[i].action = kTabela[i].acao;
+  }
+  palavras[kTabelaLen].word = nullptr;
+  return palavras;
+}
+
 void copiar(char* destino, std::size_t cap, const char* origem,
             std::size_t len) {
   std::size_t i = 0;
@@ -294,9 +310,12 @@ const char* to_string(CommandError error) {
   return "erro desconhecido";
 }
 
+const CommandWord* command_words() { return command_words_impl(); }
+
 const char* const* help_lines() {
   static const char* const kAjuda[] = {
       "comandos (o 'set' e opcional):",
+      "  ajuda              mostra esta lista",
       "  nome <texto>       nome Bluetooth do adaptador (ex.: OBDII)",
       "  mac <AA:BB:..>     fixa o MAC; sem valor, limpa",
       "  pin <numero>       PIN de pareamento (ex.: 1234)",
@@ -311,6 +330,10 @@ const char* const* help_lines() {
       "  scan               forca uma nova varredura",
       "  reiniciar          reinicia o ESP32",
       "  dtc                le os codigos de falha da ECU",
+      "mostrador de 7 segmentos:",
+      "  teste              autoteste: acende segmento por segmento",
+      "  seg <texto>        escreve e SEGURA a tela (ex.: seg 13.8, seg 8--)",
+      "  auto               devolve a tela para a telemetria",
       nullptr,
   };
   return kAjuda;
