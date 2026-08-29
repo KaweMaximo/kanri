@@ -138,6 +138,14 @@ std::size_t g_medida_idx = 0;
 // 17 segundos, e o watchdog estoura em 8.
 std::size_t g_teste_passo = kanri::display::kSegTestSteps;
 std::uint32_t g_teste_ms = 0;
+
+// Mostrador preso num valor escrito a mao pelo comando `seg`.
+//
+// Sem isto o comando so pisca: a telemetria redesenha 10 vezes por segundo e
+// apaga o que foi escrito em 100 ms. O operador ve o valor aparecer e sumir,
+// e conclui que o display esta com defeito — quando na verdade os dois donos
+// da tela estao brigando por ela.
+bool g_seg_manual = false;
 constexpr std::uint32_t kTestePassoMs = 1200;
 /// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
 std::uint32_t g_retry_delay_ms = 0;
@@ -572,7 +580,12 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::ReadDtc:
       ler_e_mostrar_dtcs();
       return;
+    case CommandAction::SegAuto:
+      g_seg_manual = false;
+      Serial.println(F("[7seg] de volta a telemetria"));
+      return;
     case CommandAction::SegTest:
+      g_seg_manual = false;
       g_teste_passo = 0;
       g_teste_ms = 0;
       Serial.println(F("[7seg] autoteste — confira cada passo no mostrador"));
@@ -589,6 +602,7 @@ void executar(const kanri::config::ParsedCommand& cmd) {
         return;
       }
       g_teste_passo = kanri::display::kSegTestSteps;  // sai do autoteste
+      g_seg_manual = true;  // segura a tela ate `auto` ou um toque no botao
       g_seg.render_raw(d, kanri::display::kSegDigits);
       Serial.printf("[7seg] mostrando \"%s\"\n", cmd.text);
       return;
@@ -666,6 +680,8 @@ void ler_botao() {
 
   switch (g_botao.update(apertado, g_clock.now_ms())) {
     case kanri::core::ButtonEvent::Click:
+      // Um toque no botao quer dizer "quero ver o carro". Solta a tela.
+      g_seg_manual = false;
       g_medida_idx = (g_medida_idx + 1) % kanri::display::kSegMeasureCount;
       Serial.printf("[botao] medida -> %s\n",
                     kanri::display::kSegMeasures[g_medida_idx].key);
@@ -719,6 +735,9 @@ void render_seg_if_due() {
   // O autoteste manda no mostrador enquanto roda: intercalar a telemetria
   // faria os passos piscarem e o operador nao conseguiria conferir nada.
   if (autoteste_em_curso()) return;
+
+  // Valor escrito a mao manda na tela ate ser solto. Ver g_seg_manual.
+  if (g_seg_manual) return;
 
   const std::uint32_t now = g_clock.now_ms();
   if (g_last_seg_ms != 0 &&

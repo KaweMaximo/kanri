@@ -60,7 +60,8 @@ enum class CommandAction : std::uint8_t {
   SetBrightness,  ///< Brilho do display, 0-100.
   SetUnits,       ///< "metrico" ou "imperial".
   SegTest,        ///< Autoteste do mostrador de 7 segmentos.
-  SegShow,        ///< Escreve um texto direto no mostrador.
+  SegShow,        ///< Escreve um texto direto no mostrador (e SEGURA a tela).
+  SegAuto,        ///< Devolve o mostrador a telemetria.
 };
 
 /// Por que a linha nao pode ser executada.

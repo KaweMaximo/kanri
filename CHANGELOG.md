@@ -82,6 +82,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   brilho.
 
 ### Corrigido
+- **O comando `seg` só piscava o valor.** A telemetria redesenha o mostrador
+  10 vezes por segundo e apagava o texto escrito à mão em 100 ms. O operador
+  via o valor aparecer e sumir, e concluía que o display estava com defeito —
+  quando na verdade os dois donos da tela estavam brigando por ela.
+
+  Agora `seg <texto>` **segura** a tela. Solta com o comando `auto`, com um
+  toque no botão (um toque quer dizer "quero ver o carro"), ou rodando o
+  `teste`.
+
+### Adicionado
+- Comando `auto`: devolve o mostrador à telemetria.
+
+### Corrigido
 - **O comando `brilho` não chegava ao MAX7219.** Ele alterava as configurações
   e respondia *"aplicado"*, mas o `main.cpp` nunca repassava o valor ao chip —
   o mostrador ficava nos 30 % iniciais para sempre.
