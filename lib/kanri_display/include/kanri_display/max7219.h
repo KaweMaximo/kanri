@@ -122,6 +122,33 @@ std::size_t init_sequence(Max7219Word* out, std::size_t cap,
 /// visivel. Apagar de verdade e o registrador Shutdown.
 std::uint8_t intensity_from_percent(std::uint8_t percent);
 
+// ---------------------------------------------------------------------------
+//  Autoteste do mostrador
+// ---------------------------------------------------------------------------
+//  Serve para responder, sem o carro e sem multimetro, tres perguntas que a
+//  fiacao de um mostrador de 7 segmentos sempre levanta:
+//
+//    1. Todo segmento acende?     -> um passo por segmento, isolado
+//    2. Todo digito acende?       -> um passo por digito, isolado
+//    3. A ORDEM dos digitos esta certa?  -> mostra "123"
+//
+//  A terceira e a que ninguem lembra de conferir. Se o mostrador exibir
+//  "321", os fios estao todos bons e o painel mente em silencio — e a correcao
+//  e uma linha no HAL, nao um fio.
+
+/// Um passo do autoteste.
+struct SegTestStep {
+  std::uint8_t digits[kSegDigits] = {};  ///< Bytes crus, na ordem de LEITURA.
+  const char* espera = "";               ///< O que o operador deve estar vendo.
+};
+
+/// Quantos passos o autoteste tem.
+constexpr std::size_t kSegTestSteps = 1 + 8 + kSegDigits + 2;
+
+/// Monta o passo `index` do autoteste.
+/// @return false se o indice nao existe.
+bool seg_test_step(std::size_t index, SegTestStep* out);
+
 /// Num quadro que pisca, o conteudo aparece na primeira metade do ciclo.
 ///
 /// Fica aqui, e nao no HAL, porque "esta visivel agora?" e uma conta com o

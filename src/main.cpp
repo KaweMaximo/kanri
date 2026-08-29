@@ -132,6 +132,13 @@ std::uint32_t g_degraded_since_ms = 0;
 std::uint32_t g_last_render_ms = 0;
 std::uint32_t g_last_seg_ms = 0;
 std::size_t g_medida_idx = 0;
+
+// Autoteste do mostrador. kSegTestSteps = "parado"; qualquer valor abaixo e
+// o passo em curso. Roda pelo laco, sem bloquear: 14 passos a 1,2 s dariam
+// 17 segundos, e o watchdog estoura em 8.
+std::size_t g_teste_passo = kanri::display::kSegTestSteps;
+std::uint32_t g_teste_ms = 0;
+constexpr std::uint32_t kTestePassoMs = 1200;
 /// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
 std::uint32_t g_retry_delay_ms = 0;
 /// Quando o estado atual comecou. E a origem de tempo do padrao do LED: sem
@@ -565,6 +572,27 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::ReadDtc:
       ler_e_mostrar_dtcs();
       return;
+    case CommandAction::SegTest:
+      g_teste_passo = 0;
+      g_teste_ms = 0;
+      Serial.println(F("[7seg] autoteste — confira cada passo no mostrador"));
+      return;
+    case CommandAction::SegShow: {
+      kanri::display::SegFrame f;
+      std::strncpy(f.text, cmd.text, sizeof(f.text) - 1);
+      std::uint8_t d[kanri::display::kSegDigits];
+      if (!kanri::display::encode_frame(f, d, kanri::display::kSegDigits)) {
+        // Recusa explicita: sem isto o operador acharia que o mostrador
+        // esta com defeito, quando o texto e que nao tem como ser desenhado.
+        Serial.printf("[7seg] \"%s\" nao e desenhavel em %u digitos\n", cmd.text,
+                      static_cast<unsigned>(kanri::display::kSegDigits));
+        return;
+      }
+      g_teste_passo = kanri::display::kSegTestSteps;  // sai do autoteste
+      g_seg.render_raw(d, kanri::display::kSegDigits);
+      Serial.printf("[7seg] mostrando \"%s\"\n", cmd.text);
+      return;
+    }
     case CommandAction::Restart:
       Serial.println(F("[cfg] reiniciando..."));
       Serial.flush();
@@ -649,7 +677,42 @@ void ler_botao() {
 }
 
 /// Desenha o mostrador de tres digitos do painel.
+/// Avanca o autoteste, se houver um em curso.
+/// @return true se o autoteste esta no comando do mostrador agora.
+bool autoteste_em_curso() {
+  if (g_teste_passo >= kanri::display::kSegTestSteps) return false;
+
+  const std::uint32_t now = g_clock.now_ms();
+  if (g_teste_ms != 0 &&
+      kanri::core::elapsed_ms(now, g_teste_ms) < kTestePassoMs) {
+    return true;  // segurando o passo atual
+  }
+  g_teste_ms = now;
+
+  kanri::display::SegTestStep passo;
+  if (!kanri::display::seg_test_step(g_teste_passo, &passo)) {
+    g_teste_passo = kanri::display::kSegTestSteps;
+    return false;
+  }
+
+  Serial.printf("[7seg] passo %u/%u: %s\n",
+                static_cast<unsigned>(g_teste_passo + 1),
+                static_cast<unsigned>(kanri::display::kSegTestSteps),
+                passo.espera);
+  g_seg.render_raw(passo.digits, kanri::display::kSegDigits);
+
+  ++g_teste_passo;
+  if (g_teste_passo >= kanri::display::kSegTestSteps) {
+    Serial.println(F("[7seg] autoteste concluido"));
+  }
+  return true;
+}
+
 void render_seg_if_due() {
+  // O autoteste manda no mostrador enquanto roda: intercalar a telemetria
+  // faria os passos piscarem e o operador nao conseguiria conferir nada.
+  if (autoteste_em_curso()) return;
+
   const std::uint32_t now = g_clock.now_ms();
   if (g_last_seg_ms != 0 &&
       kanri::core::elapsed_ms(now, g_last_seg_ms) < kSegRenderIntervalMs) {

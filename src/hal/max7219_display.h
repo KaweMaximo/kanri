@@ -37,6 +37,7 @@ class Max7219Display : public kanri::display::ISevenSeg {
 
   bool begin() override;
   void render(const kanri::display::SegFrame& frame) override;
+  void render_raw(const std::uint8_t* digits, std::size_t count) override;
   void set_brightness(std::uint8_t percent) override;
   void clear() override;
 

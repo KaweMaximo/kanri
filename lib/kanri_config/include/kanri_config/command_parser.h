@@ -59,6 +59,8 @@ enum class CommandAction : std::uint8_t {
   SetTimeout,     ///< Espera maxima por resposta, em ms.
   SetBrightness,  ///< Brilho do display, 0-100.
   SetUnits,       ///< "metrico" ou "imperial".
+  SegTest,        ///< Autoteste do mostrador de 7 segmentos.
+  SegShow,        ///< Escreve um texto direto no mostrador.
 };
 
 /// Por que a linha nao pode ser executada.
