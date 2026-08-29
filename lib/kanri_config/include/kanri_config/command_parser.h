@@ -62,6 +62,7 @@ enum class CommandAction : std::uint8_t {
   SegTest,        ///< Autoteste do mostrador de 7 segmentos.
   SegShow,        ///< Escreve um texto direto no mostrador (e SEGURA a tela).
   SegAuto,        ///< Devolve o mostrador a telemetria.
+  PotStatus,      ///< Mostra a leitura crua do potenciometro de brilho.
 };
 
 /// Por que a linha nao pode ser executada.

@@ -8,6 +8,35 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Potenciômetro de brilho** no GPIO 36 (`VP`), com **5 níveis** e comando
+  `pot` para conferir a fiação.
+
+  Cinco e não dezesseis por decisão do Kawe, e o motivo é técnico: o ADC do
+  ESP32 oscila ±40 contagens parado. Com 16 níveis o mostrador **pulsaria**
+  com o botão imóvel; com 5, cada faixa tem ~819 contagens e o ruído some.
+
+  Mas quantizar não basta sozinho, e o módulo trata **três** modos de falha:
+
+  | Problema | Sintoma | Defesa |
+  |---|---|---|
+  | ruído do ADC | pulsa parado | 5 níveis |
+  | ruído na fronteira | pisca entre dois brilhos | histerese de 150 |
+  | pino solto | brilho passeia sozinho | 6 leituras ancoradas |
+
+  O terceiro é o menos óbvio: o GPIO 36 não tem *pull-up* interno, então sem o
+  fio ele vira antena. O discriminador não é o valor lido — é a
+  **estabilidade**: potenciômetro é fonte de baixa impedância e oscila pouco,
+  pino solto varre a escala inteira entre amostras.
+
+  O teste de pino solto **reprovou a primeira versão**: com 3 confirmações,
+  ruído uniforme conseguia mexer no brilho em minutos de operação. Foi o teste
+  que definiu o número 6, não um chute.
+
+  O potenciômetro só escreve no chip **na mudança de nível**. Sem isso ele
+  desfaria o comando `brilho` cinco vezes por segundo — o mesmo defeito que o
+  `seg` teve com a telemetria.
+
+### Adicionado
 - **Autoteste do mostrador**, pelos comandos `teste` e `seg <texto>` no
   console. Responde sem o carro e sem multímetro as três perguntas que a
   fiação de um display de 7 segmentos sempre levanta:

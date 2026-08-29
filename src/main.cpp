@@ -43,6 +43,7 @@
 #include <cstring>
 
 #include "kanri_core/button.h"
+#include "kanri_display/brightness_knob.h"
 #include "kanri_display/max7219.h"
 #include "kanri_display/view_model.h"
 
@@ -88,6 +89,20 @@ constexpr std::uint8_t kSegLoad = 5;
 // NAO teriam pull-up, e o `pinMode` nem reclamaria. Ver docs/HARDWARE.md.
 constexpr std::uint8_t kBotaoPin = 17;
 
+// Potenciometro de brilho (decisao de Jose Rodrigues, 29/08/2026): pernas
+// externas em 3,3 V e GND, cursor no GPIO 36 (VP).
+//
+// Os dois motivos de ser justamente este pino:
+//   - e do ADC1. O ADC2 NAO funciona com o radio ligado, e o Bluetooth fica
+//     ligado o tempo todo — usar ADC2 daria um botao que para de responder
+//     assim que o adaptador conecta;
+//   - e input-only, entao nao desperdica um pino que sirva para outra coisa.
+constexpr std::uint8_t kPotPin = 36;
+
+// De quanto em quanto tempo o botao e lido. Ninguem gira mais rapido que
+// isso, e ler o ADC no laco todo so gastaria tempo do barramento OBD.
+constexpr std::uint32_t kPotIntervalMs = 200;
+
 // De quanto em quanto tempo o mostrador do carro e redesenhado. Mais rapido
 // que o texto porque o piscar do alerta precisa de resolucao.
 constexpr std::uint32_t kSegRenderIntervalMs = 100;
@@ -113,6 +128,7 @@ kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
 kanri::hal::Max7219Display g_seg(kSegDin, kSegClk, kSegLoad);
 kanri::core::Button g_botao;
+kanri::display::BrightnessKnob g_knob;
 kanri::hal::NvsConfigStore g_config_store;
 kanri::hal::BtSerialTransport g_transport("Kanri");
 kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
@@ -138,6 +154,8 @@ std::size_t g_medida_idx = 0;
 // 17 segundos, e o watchdog estoura em 8.
 std::size_t g_teste_passo = kanri::display::kSegTestSteps;
 std::uint32_t g_teste_ms = 0;
+std::uint32_t g_pot_ms = 0;
+std::uint16_t g_pot_raw = 0;
 
 // Mostrador preso num valor escrito a mao pelo comando `seg`.
 //
@@ -580,6 +598,22 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::ReadDtc:
       ler_e_mostrar_dtcs();
       return;
+    case CommandAction::PotStatus: {
+      // Le na hora, sem esperar o intervalo: quem digitou o comando esta
+      // com a mao no botao querendo ver o numero mexer.
+      const std::uint16_t raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+      Serial.printf("[pot] GPIO %u  adc=%u/%u\n",
+                    static_cast<unsigned>(kPotPin), static_cast<unsigned>(raw),
+                    static_cast<unsigned>(kanri::display::kAdcMax));
+      Serial.printf("      nivel %u/%u (%u%%)   candidato: %u\n",
+                    static_cast<unsigned>(g_knob.level() + 1),
+                    static_cast<unsigned>(kanri::display::kKnobLevels),
+                    static_cast<unsigned>(g_knob.percent()),
+                    static_cast<unsigned>(g_knob.pending_level() + 1));
+      Serial.println(F("      gire de ponta a ponta: adc deve ir de ~0 a ~4095"));
+      Serial.println(F("      se ficar pulando sem voce girar, o cursor esta solto"));
+      return;
+    }
     case CommandAction::SegAuto:
       g_seg_manual = false;
       Serial.println(F("[7seg] de volta a telemetria"));
@@ -696,6 +730,38 @@ void ler_botao() {
       break;
     default:
       break;
+  }
+}
+
+/// Le o potenciometro de brilho e aplica, se o nivel tiver mudado.
+///
+/// So escreve no chip na MUDANCA. E o que evita brigar com o comando
+/// `brilho` do console: sem isso, o potenciometro desfaria o comando cinco
+/// vezes por segundo — o mesmo defeito que o `seg` teve com a telemetria.
+/// Assim, o comando vale ate alguem girar o botao, que e como um controle
+/// fisico deve se comportar.
+void ler_potenciometro() {
+  const std::uint32_t now = g_clock.now_ms();
+  if (g_pot_ms != 0 &&
+      kanri::core::elapsed_ms(now, g_pot_ms) < kPotIntervalMs) {
+    return;
+  }
+  g_pot_ms = now;
+
+  // Leitura CRUA, sem media. A media parece melhoria e nao e: ela aproximaria
+  // um pino solto do meio da escala, fazendo lixo parecer posicao estavel. O
+  // filtro precisa ver o ruido para poder rejeita-lo.
+  g_pot_raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+
+  if (g_knob.update(g_pot_raw)) {
+    const std::uint8_t pct = g_knob.percent();
+    g_settings.display_brightness = pct;
+    g_seg.set_brightness(pct);
+    Serial.printf("[pot] nivel %u/%u — brilho %u%% (adc %u)\n",
+                  static_cast<unsigned>(g_knob.level() + 1),
+                  static_cast<unsigned>(kanri::display::kKnobLevels),
+                  static_cast<unsigned>(pct),
+                  static_cast<unsigned>(g_pot_raw));
   }
 }
 
@@ -841,6 +907,9 @@ void setup() {
   pinMode(kBotaoPin, INPUT_PULLUP);
   Serial.printf("[botao] no GPIO %u (INPUT_PULLUP)\n",
                 static_cast<unsigned>(kBotaoPin));
+  Serial.printf("[pot] brilho no GPIO %u (ADC1), %u niveis\n",
+                static_cast<unsigned>(kPotPin),
+                static_cast<unsigned>(kanri::display::kKnobLevels));
 
   // O mostrador do painel. Falhar aqui NAO leva a Fault: o aparelho continua
   // util pelo console e pelo painel web, e um carro sem display e melhor do
@@ -1005,6 +1074,7 @@ void loop() {
   heartbeat_if_due();
   atualizar_led();
   ler_botao();
+  ler_potenciometro();
   render_if_due();
   render_seg_if_due();
 
