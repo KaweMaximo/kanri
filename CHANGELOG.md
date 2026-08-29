@@ -7,6 +7,19 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido
+- **Gravar sem o ESP32 plugado dava um erro que apontava para o lugar errado.**
+  Sem porta, o PlatformIO *adivinhava* `/dev/ttyS0` — a serial legada da
+  placa-mãe, que normalmente nem existe — e reportava
+  `Could not open /dev/ttyS0, the port doesn't exist`.
+
+  Quem lê isso vai procurar problema de permissão, de driver ou de regra
+  `udev`. O cabo é que estava fora.
+
+  O painel agora **recusa antes de tentar**, dizendo o que realmente
+  aconteceu, e passa a porta **explícita** ao PlatformIO para ele nunca mais
+  escolher outra serial da máquina.
+
 ### Adicionado
 - **Barra de LEDs** — `leds 22,21,19` e `piscar`, com a varredura entrando no
   autoteste.
