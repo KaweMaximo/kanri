@@ -116,6 +116,16 @@ Se dá, vai para `lib/`.
 | **`switch` sobre enum sem `default`** | Assim o compilador avisa quando um valor novo não é tratado |
 | **Struct serializada para flash = POD trivial** | Sem valores iniciais de membro. Ver o `static_assert` em `settings.h` |
 
+### Armadilhas que já custaram tempo neste projeto
+
+| Sintoma | Causa | Correção |
+|---|---|---|
+| `deducing from brace-enclosed initializer list requires '#include <initializer_list>'` | `for (const X v : {a, b})` sobre lista literal | `#include <initializer_list>` no teste |
+| `'elapsed_ms' is not a member of 'kanri::core'` | Ele mora em `i_clock.h`, não em `state_machine.h` | incluir `kanri_core/i_clock.h` |
+| `writing to an object of non-trivial type` (`-Wclass-memaccess`) | `memset` numa struct com valor inicial de membro | struct serializada para flash é POD puro — padrões em `default_settings()` |
+| Firmware reinicia sozinho, `motivo do reset: 7/8/9` | Alguma chamada no `loop()` bloqueia mais que o watchdog | versão assíncrona, ou fatiar a operação entre voltas do loop |
+| Log serial saindo com linhas cortadas ao meio | Outra task do IDF escrevendo na Serial junto | baixar `CORE_DEBUG_LEVEL` |
+
 ### Comentários
 
 Comentário explica **por quê**, não **o quê**.

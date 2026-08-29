@@ -28,6 +28,7 @@
 #include "hal/gpio_led.h"
 #include "hal/nvs_config_store.h"
 #include "hal/serial_display.h"
+#include "kanri_config/command_parser.h"
 #include "kanri_config/settings.h"
 #include "kanri_core/led_pattern.h"
 #include "kanri_core/retry_policy.h"
@@ -104,6 +105,10 @@ std::uint32_t g_state_since_ms = 0;
 /// encerrar um scan que roda em outra task.
 std::uint32_t g_scan_since_ms = 0;
 
+/// Linha sendo digitada no console serial.
+char g_linha[kanri::config::kMaxCommandLen + 1];
+std::size_t g_linha_len = 0;
+
 /// Ponto unico de entrada de eventos na maquina de estados.
 ///
 /// Centralizar aqui garante que TODA transicao seja registrada em log e que
@@ -158,10 +163,15 @@ kanri::core::AppEvent load_configuration() {
     Serial.println(F("[config] valores fora de faixa foram corrigidos"));
   }
 
+  g_transport.set_target(g_settings.adapter_name, g_settings.adapter_mac,
+                         g_settings.adapter_pin);
+
   if (!loaded) {
     Serial.println(F("[config] sem dados na flash — usando padroes de fabrica"));
     return kanri::core::AppEvent::ConfigFailed;
   }
+  Serial.printf("[config] carregado da flash: nome=\"%s\"\n",
+                g_settings.adapter_name);
   return kanri::core::AppEvent::ConfigLoaded;
 }
 
@@ -266,6 +276,115 @@ void ler_um_pid() {
                 static_cast<double>(valor.value), valor.unit);
 }
 
+// ---------------------------------------------------------------------------
+//  Console serial de configuracao
+//
+//  Existe por um motivo pratico: o nome Bluetooth do adaptador varia entre
+//  modelos ("OBDII", "V-LINK", "Android-Vlink"). Sem isto, descobrir que o
+//  seu se chama diferente exigiria recompilar e regravar o firmware — dentro
+//  do carro, com o notebook no colo.
+//
+//  A interpretacao da linha e testada em lib/kanri_config/command_parser.
+//  Aqui so lemos bytes e aplicamos o resultado.
+// ---------------------------------------------------------------------------
+
+void imprimir_status() {
+  Serial.println(F("--- status ---"));
+  Serial.printf("  estado      : %s\n", kanri::core::to_string(g_state));
+  Serial.printf("  firmware    : v%s\n", KANRI_VERSION_STRING);
+  Serial.printf("  adaptador   : nome=\"%s\" mac=\"%s\" pin=\"%s\"\n",
+                g_settings.adapter_name, g_settings.adapter_mac,
+                g_settings.adapter_pin);
+  Serial.printf("  intervalo   : %u ms\n",
+                static_cast<unsigned>(g_settings.poll_interval_ms));
+  Serial.printf("  timeout     : %u ms\n",
+                static_cast<unsigned>(g_settings.elm_timeout_ms));
+  Serial.printf("  unidades    : %s\n",
+                g_settings.use_metric_units ? "metrico" : "imperial");
+  Serial.printf("  leituras ok : %u   rejeitadas: %u\n",
+                static_cast<unsigned>(g_telemetry.frames_ok),
+                static_cast<unsigned>(g_obd.rejected_count()));
+  Serial.println(F("  (digite 'ajuda' para ver os comandos)"));
+}
+
+void executar(const kanri::config::ParsedCommand& cmd) {
+  using kanri::config::CommandAction;
+
+  if (cmd.action == CommandAction::None) return;
+  if (!cmd.ok()) {
+    Serial.printf("[cfg] %s\n", kanri::config::to_string(cmd.error));
+    return;
+  }
+
+  switch (cmd.action) {
+    case CommandAction::Help:
+      for (const char* const* l = kanri::config::help_lines(); *l; ++l) {
+        Serial.println(*l);
+      }
+      return;
+    case CommandAction::Status:
+      imprimir_status();
+      return;
+    case CommandAction::Scan:
+      Serial.println(F("[cfg] forcando nova varredura"));
+      dispatch(kanri::core::AppEvent::RetryTimerExpired);
+      return;
+    case CommandAction::Save:
+      if (g_config_store.save(g_settings)) {
+        Serial.println(F("[cfg] gravado na flash"));
+      } else {
+        Serial.println(F("[cfg] FALHA ao gravar"));
+      }
+      return;
+    case CommandAction::Load: {
+      const bool tinha = g_config_store.load(g_settings);
+      Serial.printf("[cfg] %s\n",
+                    tinha ? "carregado da flash" : "nada gravado — usando padroes");
+      g_transport.set_target(g_settings.adapter_name, g_settings.adapter_mac,
+                             g_settings.adapter_pin);
+      return;
+    }
+    case CommandAction::Restart:
+      Serial.println(F("[cfg] reiniciando..."));
+      Serial.flush();
+      ESP.restart();
+      return;
+    default:
+      break;  // comandos de escrita, tratados abaixo
+  }
+
+  if (kanri::config::apply_command(cmd, g_settings)) {
+    Serial.printf("[cfg] %s aplicado (use 'save' para gravar)\n",
+                  kanri::config::to_string(cmd.action));
+    // O alvo da varredura muda na hora: assim da para corrigir o nome e ver
+    // a proxima varredura ja procurando o certo, sem reiniciar.
+    g_transport.set_target(g_settings.adapter_name, g_settings.adapter_mac,
+                           g_settings.adapter_pin);
+  } else {
+    Serial.println(F("[cfg] valor recusado — veja 'ajuda'"));
+  }
+}
+
+/// Le o que chegou pelo serial, uma linha por vez. Nao bloqueia.
+void ler_console() {
+  while (Serial.available() > 0) {
+    const int c = Serial.read();
+    if (c < 0) return;
+
+    if (c == '\n' || c == '\r') {
+      if (g_linha_len > 0) {
+        executar(kanri::config::parse_command(g_linha, g_linha_len));
+        g_linha_len = 0;
+      }
+      continue;
+    }
+    // Linha longa demais: descarta o excedente em vez de estourar o buffer.
+    if (g_linha_len < kanri::config::kMaxCommandLen) {
+      g_linha[g_linha_len++] = static_cast<char>(c);
+    }
+  }
+}
+
 void render_if_due() {
   const std::uint32_t now = g_clock.now_ms();
   if (kanri::core::elapsed_ms(now, g_last_render_ms) < kRenderIntervalMs) {
@@ -298,6 +417,7 @@ void setup() {
                 "5=deep-sleep 6=brownout 7/8/9=watchdog)\n",
                 static_cast<int>(esp_reset_reason()));
   Serial.println(F("Alvo: Mitsubishi Lancer 2.0 2014 (4B11)"));
+  Serial.println(F("Digite 'ajuda' para configurar pelo serial."));
 
   // Watchdog: 8 s de prazo, com panic (reset) ao estourar.
   esp_task_wdt_init(kWatchdogTimeoutSec, true);
@@ -442,6 +562,7 @@ void loop() {
       break;
   }
 
+  ler_console();
   atualizar_led();
   render_if_due();
 

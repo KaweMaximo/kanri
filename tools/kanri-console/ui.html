@@ -162,6 +162,22 @@ tailwind.config = {
       <div class="text-slate-400 italic text-center py-16" id="vazio">Aguardando dados do ESP32…</div>
     </div>
 
+    <!-- Console: envia uma linha para o firmware, que a interpreta com o
+         command_parser. E assim que se configura o nome do adaptador sem
+         recompilar. -->
+    <form id="formCmd" class="shrink-0 flex items-center gap-2 px-3 py-2.5
+                border-t border-slate-200 dark:border-base-600
+                bg-slate-50 dark:bg-base-850/60">
+      <span class="text-brand font-mono text-sm select-none">&gt;</span>
+      <input id="cmd" autocomplete="off" spellcheck="false"
+             placeholder="ajuda · status · nome OBDII · save · scan"
+             class="flex-1 bg-transparent outline-none font-mono text-[12.5px]
+                    placeholder:text-slate-400 dark:placeholder:text-slate-600">
+      <button type="submit"
+              class="px-3 py-1 rounded-md text-[11px] border border-brand/40
+                     text-brand hover:bg-brand/10 transition-colors">enviar</button>
+    </form>
+
     <button id="btFim" class="hidden absolute bottom-5 right-7 z-10 px-3 py-1.5 rounded-full text-xs
             bg-brand text-white shadow-lg shadow-brand/30 hover:bg-brand-dim transition-all
             flex items-center gap-1.5">
@@ -368,6 +384,38 @@ for (const b of document.querySelectorAll('#acoes button')) {
     }
   };
 }
+
+/* ── console de comandos ──────────────────────────────────────── */
+const historico = [];
+let hpos = -1;
+
+$('formCmd').onsubmit = async e => {
+  e.preventDefault();
+  const linha = $('cmd').value.trim();
+  if (!linha) return;
+  historico.unshift(linha);
+  if (historico.length > 50) historico.pop();
+  hpos = -1;
+  $('cmd').value = '';
+  await fetch('/api/send', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({linha}),
+  });
+};
+
+// Seta para cima/baixo percorre o historico, como num terminal.
+$('cmd').onkeydown = e => {
+  if (e.key === 'ArrowUp' && historico.length) {
+    e.preventDefault();
+    hpos = Math.min(hpos + 1, historico.length - 1);
+    $('cmd').value = historico[hpos];
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    hpos = Math.max(hpos - 1, -1);
+    $('cmd').value = hpos >= 0 ? historico[hpos] : '';
+  }
+};
 
 /* ── tema ────────────────────────────────────────────────────── */
 const raiz = document.documentElement;
