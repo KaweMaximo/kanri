@@ -14,17 +14,22 @@ bool SerialDisplay::begin() {
 }
 
 void SerialDisplay::render(const display::DisplayFrame& frame) {
-  Serial.println(F("+------------------------+"));
-  Serial.printf("| %-22s |\n", frame.title);
-  Serial.println(F("+------------------------+"));
+  // A largura vem de kFrameTextLen, e nao de um numero digitado aqui: o
+  // format_row() preenche a linha inteira, e uma moldura mais estreita que o
+  // conteudo faria os valores alinhados a direita vazarem para fora dela.
+  static constexpr int kLargura = static_cast<int>(display::kFrameTextLen) - 1;
+
+  Serial.println(F("+-------------------------+"));
+  Serial.printf("| %-*s |\n", kLargura, frame.title);
+  Serial.println(F("+-------------------------+"));
   for (std::size_t i = 0; i < display::kFrameLines; ++i) {
     if (frame.lines[i][0] == '\0') continue;
-    Serial.printf("| %-22s |\n", frame.lines[i]);
+    Serial.printf("| %-*s |\n", kLargura, frame.lines[i]);
   }
   if (frame.warning) {
-    Serial.println(F("|        [ ATENCAO ]     |"));
+    Serial.printf("| %-*s |\n", kLargura, "      [ ATENCAO ]");
   }
-  Serial.println(F("+------------------------+"));
+  Serial.println(F("+-------------------------+"));
 }
 
 void SerialDisplay::set_brightness(std::uint8_t percent) {

@@ -44,12 +44,30 @@ struct DisplayFrame {
   bool warning = false;  ///< Pede destaque visual (inverter, piscar, vermelho).
 };
 
-/// Monta a tela a partir do estado do sistema. Funcao PURA — e por isso que
-/// da para testar a interface sem hardware nenhum.
+/// Tudo que a tela precisa saber para se desenhar.
 ///
-/// STATUS: esqueleto. Na v0.1 devolve apenas a tela de splash com a versao.
-/// A formatacao real das medidas entra na v0.3. Ver docs/ROADMAP.md.
-DisplayFrame build_frame(const core::TelemetrySnapshot& telemetry,
-                         core::AppState state, bool metric_units);
+/// Passamos uma struct, e nao seis parametros soltos, por duas razoes: a
+/// ordem de argumentos deixa de ser uma armadilha (dois `uint32_t` seguidos
+/// sao faceis de trocar sem o compilador notar), e acrescentar informacao
+/// depois nao quebra quem ja chama.
+struct ViewContext {
+  core::AppState state = core::AppState::Boot;
+  const core::TelemetrySnapshot* telemetry = nullptr;
+  std::uint32_t now_ms = 0;         ///< Para julgar a idade das medidas.
+  bool metric_units = true;         ///< false = mph e Fahrenheit.
+  std::uint32_t retry_in_ms = 0;    ///< Quanto falta para a proxima tentativa.
+  std::uint32_t retry_attempt = 0;  ///< Numero da tentativa atual.
+  const char* adapter_name = "";    ///< Quem estamos procurando.
+};
+
+/// Monta a tela a partir do estado do sistema. Funcao PURA — e por isso que
+/// da para testar o que o motorista ve sem display nenhum.
+///
+/// Escolhe a tela pelo estado:
+///   Boot, LoadingConfig ....................... Splash
+///   Scanning/Connecting/Initializing/Vehicle .. Connecting
+///   Polling ................................... Dashboard
+///   Degraded, Fault ........................... Error
+DisplayFrame build_frame(const ViewContext& context);
 
 }  // namespace kanri::display
