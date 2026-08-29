@@ -57,6 +57,11 @@ bool ObdClient::write_command(const char* command) {
   const std::size_t len = std::strlen(command);
   if (len == 0 || len > 32) return false;
 
+  // Auditoria: este e o UNICO ponto do firmware que escreve no transporte.
+  // Tudo que sai para o adaptador passa por aqui, entao o log de auditoria e
+  // completo por construcao — nao ha caminho paralelo.
+  if (audit_ != nullptr) audit_(command);
+
   // Monta comando + CR num buffer unico: duas escritas separadas dariam ao
   // adaptador a chance de processar um comando incompleto.
   char linha[34];
@@ -121,6 +126,9 @@ std::size_t ObdClient::send_at(const char* command, char* out, std::size_t cap,
 
 bool ObdClient::initialize() {
   ready_ = false;
+  // Depois de reinicializar o adaptador, a proxima leitura volta a ser a
+  // "primeira": o ATSP0 vai buscar o protocolo de novo.
+  primeira_leitura_ = true;
   if (!transport_.is_connected()) return false;
 
   char resposta[kResponseBuffer];
@@ -168,14 +176,19 @@ ParsedFrame ObdClient::read_pid(std::uint8_t mode, std::uint8_t pid) {
 
   // Retentativa somente para falhas passageiras. Insistir num "NO DATA"
   // (a ECU nao tem esse PID) so gastaria banda do barramento.
+  // A primeira leitura depois de conectar espera bem mais: o ATSP0 precisa
+  // descobrir o protocolo do carro antes de conseguir responder.
+  const std::uint32_t timeout = primeira_leitura_
+                                    ? config_.first_read_timeout_ms
+                                    : config_.response_timeout_ms;
+
   for (std::uint8_t tentativa = 0; tentativa <= config_.max_retries; ++tentativa) {
     if (!write_command(comando)) {
       frame.status = ParseStatus::UnableToConnect;
       return frame;
     }
 
-    const std::size_t n =
-        read_until_prompt(resposta, sizeof(resposta), config_.response_timeout_ms);
+    const std::size_t n = read_until_prompt(resposta, sizeof(resposta), timeout);
 
     frame = parse_response(resposta, n, mode, pid);
 
@@ -189,6 +202,7 @@ ParsedFrame ObdClient::read_pid(std::uint8_t mode, std::uint8_t pid) {
         return frame;
       }
       ++ok_;
+      primeira_leitura_ = false;  // protocolo negociado
       return frame;
     }
 

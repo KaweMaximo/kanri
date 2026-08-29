@@ -66,6 +66,18 @@ class BtSerialTransport final : public obd::ITransport {
   /// Aplica as regras de adapter_matcher sobre a ultima varredura.
   obd::MatchOutcome match() const;
 
+  /// Ha um MAC configurado? Nesse caso da para conectar sem varrer.
+  bool has_target_mac() const { return alvo_mac_[0] != '\0'; }
+
+  /// Conecta direto no MAC configurado, PULANDO a varredura.
+  ///
+  /// Resolve um caso real: um adaptador com sinal fraco aparece de forma
+  /// intermitente na varredura, ou nao aparece — mas a conexao direta ainda
+  /// funciona, porque nao depende de captar o anuncio no exato intervalo em
+  /// que a busca acontece. Tambem e mais rapido: dispensa os 5 s de varredura
+  /// em toda tentativa.
+  bool connect_by_mac();
+
   // --- ITransport --------------------------------------------------------
   bool connect() override;
   void disconnect() override;

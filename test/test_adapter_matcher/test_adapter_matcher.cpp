@@ -253,6 +253,76 @@ void test_indice_sempre_valido(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  MAC -> BYTES (para conectar sem varredura)
+// ---------------------------------------------------------------------------
+
+void test_parse_mac_valido(void) {
+  std::uint8_t b[6] = {};
+  TEST_ASSERT_TRUE(kanri::obd::parse_mac("00:10:CC:4F:36:03", b));
+  TEST_ASSERT_EQUAL_UINT8(0x00, b[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x10, b[1]);
+  TEST_ASSERT_EQUAL_UINT8(0xCC, b[2]);
+  TEST_ASSERT_EQUAL_UINT8(0x4F, b[3]);
+  TEST_ASSERT_EQUAL_UINT8(0x36, b[4]);
+  TEST_ASSERT_EQUAL_UINT8(0x03, b[5]);
+}
+
+void test_parse_mac_aceita_caixa_e_separadores(void) {
+  std::uint8_t a[6] = {};
+  std::uint8_t c[6] = {};
+  TEST_ASSERT_TRUE(kanri::obd::parse_mac("aa:bb:cc:dd:ee:ff", a));
+  TEST_ASSERT_TRUE(kanri::obd::parse_mac("AA-BB-CC-DD-EE-FF", c));
+  for (int i = 0; i < 6; ++i) TEST_ASSERT_EQUAL_UINT8(a[i], c[i]);
+  TEST_ASSERT_EQUAL_UINT8(0xAA, a[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xFF, a[5]);
+}
+
+// Recusar e obrigatorio: um MAC mal interpretado faria o firmware tentar
+// conectar num endereco qualquer.
+void test_parse_mac_recusa_malformado(void) {
+  std::uint8_t b[6] = {};
+  const char* ruins[] = {
+      "",                        // vazio
+      "00:10:CC:4F:36",          // faltando um par
+      "00:10:CC:4F:36:03:AA",    // sobrando
+      "00:10:CC:4F:36:0",        // par incompleto
+      "0010CC4F3603",            // sem separador
+      "GG:10:CC:4F:36:03",       // digito invalido
+      "00:10:CC:4F:36:0G",
+      "00/10/CC/4F/36/03",       // separador errado
+      "00:10:CC:4F:36:03 ",      // lixo no fim
+  };
+  for (const char* r : ruins) {
+    TEST_ASSERT_FALSE_MESSAGE(kanri::obd::parse_mac(r, b), r);
+  }
+  TEST_ASSERT_FALSE(kanri::obd::parse_mac(nullptr, b));
+  TEST_ASSERT_FALSE(kanri::obd::parse_mac("00:10:CC:4F:36:03", nullptr));
+}
+
+// Em caso de recusa, a saida nao pode ser tocada: um parse parcial deixaria
+// metade do endereco novo e metade do antigo.
+void test_parse_mac_recusado_nao_altera_a_saida(void) {
+  std::uint8_t b[6] = {1, 2, 3, 4, 5, 6};
+  TEST_ASSERT_FALSE(kanri::obd::parse_mac("00:10:CC:ZZ:36:03", b));
+  for (std::uint8_t i = 0; i < 6; ++i) {
+    TEST_ASSERT_EQUAL_UINT8(i + 1, b[i]);
+  }
+}
+
+// Todo MAC que a configuracao aceita tem de ser convertivel: se validate()
+// diz que e valido, parse_mac nao pode recusar.
+void test_todo_mac_valido_para_a_config_e_convertivel(void) {
+  const char* validos[] = {
+      "00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF", "00:10:CC:4F:36:03",
+      "1A:2B:3C:4D:5E:6F", "aa:bb:cc:dd:ee:ff",
+  };
+  std::uint8_t b[6];
+  for (const char* m : validos) {
+    TEST_ASSERT_TRUE_MESSAGE(kanri::obd::parse_mac(m, b), m);
+  }
+}
+
 void test_to_string_cobre_todos_os_resultados(void) {
   const MatchResult todos[] = {
       MatchResult::Found, MatchResult::NoDevices, MatchResult::NoTarget,
@@ -288,6 +358,11 @@ int main() {
   RUN_TEST(test_dispositivo_sem_nome);
 
   RUN_TEST(test_indice_sempre_valido);
+  RUN_TEST(test_parse_mac_valido);
+  RUN_TEST(test_parse_mac_aceita_caixa_e_separadores);
+  RUN_TEST(test_parse_mac_recusa_malformado);
+  RUN_TEST(test_parse_mac_recusado_nao_altera_a_saida);
+  RUN_TEST(test_todo_mac_valido_para_a_config_e_convertivel);
   RUN_TEST(test_to_string_cobre_todos_os_resultados);
   return UNITY_END();
 }

@@ -45,6 +45,33 @@ UI = Path(__file__).parent / "ui.html"
 RE_ESTADO = re.compile(r"\[estado\]\s+(\S+)\s+--\((\S+)\)-->\s+(\S+)")
 RE_RETRY = re.compile(r"\[retry\]\s+tentativa\s+(\d+),\s+proxima em\s+(\d+)\s*ms")
 RE_VERSAO = re.compile(r"Kanri v(\S+)")
+# "[obd] 0C = 992.0 rpm" — uma leitura decodificada saindo do firmware.
+RE_MEDIDA = re.compile(r"\[obd\]\s+([0-9A-Fa-f]{2})\s+=\s+(-?[\d.]+)\s*(\S*)")
+
+# Nome de cada PID. Espelha o catalogo de lib/kanri_obd/include/kanri_obd/obd_pid.h
+# — se um PID novo entrar no rodizio do firmware, acrescente aqui tambem.
+NOMES_PID = {
+    "0C": "Rotação",
+    "05": "Temp. do motor",
+    "0D": "Velocidade",
+    "42": "Tensão",
+    "11": "Borboleta",
+    "04": "Carga do motor",
+    "0B": "Pressão adm.",
+    "0F": "Temp. do ar",
+    "10": "Fluxo de ar",
+    "2F": "Combustível",
+    "46": "Temp. ambiente",
+}
+
+# Ordem em que aparecem no painel. Rotacao e temperatura primeiro: sao as duas
+# que o motorista olha.
+ORDEM_PID = ["0C", "05", "42", "11", "0D"]
+
+# Quantos pontos guardar por medida. A ~1 leitura/s por PID, 180 da tres
+# minutos de historico — o bastante para ver uma tendencia (a temperatura
+# subindo, por exemplo) sem consumir memoria a toa.
+MAX_PONTOS = 180
 
 MAX_HISTORICO = 500  # linhas guardadas para quem abrir o painel depois
 
@@ -117,6 +144,9 @@ class Hub:
         self.tentativa = 0
         self.proximo_retry_ms = 0
         self.versao_fw = "—"
+        # Telemetria: valor atual e serie historica de cada PID.
+        self.medidas: dict[str, dict] = {}
+        self.series: dict[str, list] = {}
 
     def assinar(self) -> queue.Queue:
         q: queue.Queue = queue.Queue(maxsize=1000)
@@ -155,6 +185,24 @@ class Hub:
         with self._trava:
             self._historico.clear()
 
+    def telemetria(self) -> dict:
+        """Retrato atual das medidas, com historico para as sparklines."""
+        with self._trava:
+            # A ordem vem de ORDEM_PID; o que nao estiver la vai depois, para
+            # que um PID novo apareca sem precisar mexer no painel.
+            conhecidos = [p for p in ORDEM_PID if p in self.medidas]
+            extras = sorted(p for p in self.medidas if p not in ORDEM_PID)
+            saida = []
+            for pid in conhecidos + extras:
+                m = dict(self.medidas[pid])
+                m["serie"] = list(self.series.get(pid, []))
+                saida.append(m)
+            return {
+                "agora": time.time(),
+                "estado": self.estado_fw,
+                "medidas": saida,
+            }
+
     def _interpretar(self, tipo: str, texto: str) -> None:
         """Extrai o estado do firmware das linhas de log."""
         if tipo != "serial":
@@ -172,6 +220,26 @@ class Hub:
         m = RE_VERSAO.search(texto)
         if m:
             self.versao_fw = m.group(1)
+            return
+        m = RE_MEDIDA.search(texto)
+        if m:
+            pid = m.group(1).upper()
+            try:
+                valor = float(m.group(2))
+            except ValueError:
+                return
+            agora = time.time()
+            self.medidas[pid] = {
+                "pid": pid,
+                "nome": NOMES_PID.get(pid, f"PID {pid}"),
+                "valor": valor,
+                "unidade": m.group(3),
+                "t": agora,
+            }
+            serie = self.series.setdefault(pid, [])
+            serie.append([agora, valor])
+            if len(serie) > MAX_PONTOS:
+                del serie[: len(serie) - MAX_PONTOS]
 
 
 class LeitorSerial(threading.Thread):
@@ -412,6 +480,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pio": achar_pio(),
                 "projeto": str(RAIZ),
             })
+        elif self.path == "/api/telemetry":
+            self._json(self.hub.telemetria())
         elif self.path == "/api/stream":
             self._stream()
         else:

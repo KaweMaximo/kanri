@@ -36,6 +36,17 @@ struct ObdClientConfig {
   std::uint32_t response_timeout_ms = 1000;  ///< Espera maxima por uma resposta.
   std::uint32_t init_timeout_ms = 5000;      ///< Espera maxima na sequencia AT.
   std::uint8_t max_retries = 2;              ///< Retentativas por falha passageira.
+
+  /// Espera para a PRIMEIRA leitura depois de conectar.
+  ///
+  /// Com ATSP0 (protocolo automatico), a primeira requisicao nao e so uma
+  /// leitura: o ELM327 precisa DESCOBRIR qual protocolo o carro fala,
+  /// testando um a um. Isso leva varios segundos.
+  ///
+  /// Usar o timeout normal aqui faz o firmware desistir no meio da busca e
+  /// mandar outro comando — e o ELM327 responde "STOPPED", que foi
+  /// exatamente o que aconteceu no primeiro teste com o carro de verdade.
+  std::uint32_t first_read_timeout_ms = 12000;
 };
 
 class ObdClient {
@@ -82,6 +93,23 @@ class ObdClient {
   /// true depois de um initialize() bem-sucedido.
   bool ready() const { return ready_; }
 
+  /// Recebe TODO comando pouco antes de ele ir para o transporte.
+  ///
+  /// Existe para auditoria: com isto ligado, o log mostra literalmente cada
+  /// byte que sai para o barramento. A garantia read-only deixa de depender
+  /// de confianca no codigo e passa a ser VERIFICAVEL por quem esta olhando
+  /// o log — inclusive dentro do carro.
+  ///
+  /// O gancho e so observador: nao pode alterar nem cancelar o comando. Quem
+  /// decide o que pode sair e safety.h, e essa decisao ja aconteceu antes.
+  using AuditSink = void (*)(const char* command);
+  void set_audit_sink(AuditSink sink) { audit_ = sink; }
+
+  /// Troca os tempos em runtime, sem recriar o cliente.
+  /// Usado para aplicar o que veio da configuracao gravada na flash.
+  void set_config(const ObdClientConfig& config) { config_ = config; }
+  const ObdClientConfig& config() const { return config_; }
+
  private:
   /// Escreve o comando seguido de CR. @return true se tudo foi aceito.
   bool write_command(const char* command);
@@ -97,6 +125,8 @@ class ObdClient {
   std::uint32_t rejected_ = 0;
   std::uint32_t ok_ = 0;
   bool ready_ = false;
+  bool primeira_leitura_ = true;
+  AuditSink audit_ = nullptr;
 };
 
 }  // namespace kanri::obd
