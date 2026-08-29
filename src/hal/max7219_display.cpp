@@ -74,6 +74,19 @@ void Max7219Display::render(const kanri::display::SegFrame& frame) {
   }
 }
 
+void Max7219Display::render_raw(const std::uint8_t* digits, std::size_t count) {
+  if (!pronto_ || digits == nullptr) return;
+  if (count > kanri::display::kSegDigits) count = kanri::display::kSegDigits;
+
+  // Mesma inversao de render(): digits[0] e o da esquerda na leitura.
+  for (std::size_t i = 0; i < count; ++i) {
+    const std::uint8_t reg =
+        static_cast<std::uint8_t>(kanri::display::Max7219Reg::Digit0) +
+        static_cast<std::uint8_t>(kanri::display::kSegDigits - 1 - i);
+    escrever({reg, digits[i]});
+  }
+}
+
 void Max7219Display::set_brightness(std::uint8_t percent) {
   if (!pronto_) return;
   escrever({static_cast<std::uint8_t>(kanri::display::Max7219Reg::Intensity),

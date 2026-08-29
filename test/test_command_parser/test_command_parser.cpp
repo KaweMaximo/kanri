@@ -333,6 +333,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetMac, CommandAction::SetPin, CommandAction::SetInterval,
       CommandAction::SetTimeout, CommandAction::SetBrightness,
       CommandAction::SetUnits, CommandAction::ReadDtc,
+      CommandAction::SegTest, CommandAction::SegShow,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));
@@ -349,6 +350,40 @@ void test_to_string_cobre_tudo(void) {
                            kanri::config::to_string(static_cast<CommandAction>(99)));
   TEST_ASSERT_EQUAL_STRING("erro desconhecido",
                            kanri::config::to_string(static_cast<CommandError>(99)));
+}
+
+// Comandos do mostrador: existem para validar a fiacao sem o carro e sem
+// multimetro, entao precisam ser reconhecidos exatamente como digitados.
+void test_comandos_do_mostrador(void) {
+  const ParsedCommand teste = parse_command("teste", 5);
+  TEST_ASSERT_TRUE(teste.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::SegTest),
+                        static_cast<int>(teste.action));
+
+  const char* linha = "seg 13.8";
+  const ParsedCommand mostrar = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_TRUE(mostrar.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::SegShow),
+                        static_cast<int>(mostrar.action));
+  TEST_ASSERT_EQUAL_STRING("13.8", mostrar.text);
+}
+
+// "seg" sem texto nao tem o que mostrar. Recusar aqui e melhor do que apagar
+// o mostrador e deixar o operador achando que o display morreu.
+void test_mostrar_exige_texto(void) {
+  const ParsedCommand cmd = parse_command("seg", 3);
+  TEST_ASSERT_FALSE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandError::MissingArgument),
+                        static_cast<int>(cmd.error));
+}
+
+// Nenhum dos dois mexe em configuracao: sao acoes, tratadas no main.cpp.
+void test_comandos_do_mostrador_nao_alteram_configuracao(void) {
+  KanriSettings s = kanri::config::default_settings();
+  const KanriSettings antes = s;
+
+  TEST_ASSERT_FALSE(apply_command(parse_command("teste", 5), s));
+  TEST_ASSERT_EQUAL_INT(0, std::memcmp(&antes, &s, sizeof(s)));
 }
 
 int main() {
@@ -384,5 +419,8 @@ int main() {
   RUN_TEST(test_fuzz_de_linhas_aleatorias);
   RUN_TEST(test_ajuda_lista_os_comandos);
   RUN_TEST(test_to_string_cobre_tudo);
+  RUN_TEST(test_comandos_do_mostrador);
+  RUN_TEST(test_mostrar_exige_texto);
+  RUN_TEST(test_comandos_do_mostrador_nao_alteram_configuracao);
   return UNITY_END();
 }

@@ -161,6 +161,87 @@ std::uint8_t intensity_from_percent(std::uint8_t percent) {
   return static_cast<std::uint8_t>((percent * kMaxIntensity + 50) / 100);
 }
 
+namespace {
+
+// Os oito bits do registrador, do mais alto ao mais baixo, com o nome que o
+// datasheet usa. A ordem e a de leitura do desenho no cabecalho do .h.
+constexpr Glyph kSegmentos[] = {
+    {'A', A}, {'B', B}, {'C', C}, {'D', D},
+    {'E', E}, {'F', F}, {'G', G}, {'.', kSegBitDP},
+};
+
+// Rotulos fixos, para nao montar string em tempo de execucao no firmware.
+constexpr const char* kEsperaSegmento[] = {
+    "traco de CIMA (A) nos 3 digitos",
+    "traco superior DIREITO (B) nos 3 digitos",
+    "traco inferior DIREITO (C) nos 3 digitos",
+    "traco de BAIXO (D) nos 3 digitos",
+    "traco inferior ESQUERDO (E) nos 3 digitos",
+    "traco superior ESQUERDO (F) nos 3 digitos",
+    "traco do MEIO (G) nos 3 digitos",
+    "os 3 PONTOS decimais",
+};
+
+constexpr const char* kEsperaDigito[] = {
+    "so o digito da ESQUERDA, todo aceso",
+    "so o digito do MEIO, todo aceso",
+    "so o digito da DIREITA, todo aceso",
+};
+
+}  // namespace
+
+bool seg_test_step(std::size_t index, SegTestStep* out) {
+  if (out == nullptr || index >= kSegTestSteps) return false;
+
+  // Passo 0: tudo aceso. Se algum segmento nao acender aqui, os passos
+  // seguintes dizem qual — mas ja se sabe que ha problema.
+  if (index == 0) {
+    for (std::size_t i = 0; i < kSegDigits; ++i) out->digits[i] = 0xFF;
+    out->espera = "TUDO aceso: 8.8.8.";
+    return true;
+  }
+
+  // Passos 1..8: um segmento por vez, em todos os digitos. E o que localiza
+  // um fio solto: some exatamente o traco daquele passo.
+  if (index <= 8) {
+    const std::size_t seg = index - 1;
+    for (std::size_t i = 0; i < kSegDigits; ++i) {
+      out->digits[i] = kSegmentos[seg].bits;
+    }
+    out->espera = kEsperaSegmento[seg];
+    return true;
+  }
+
+  // Passos 9..11: um digito por vez. Revela a ORDEM da fiacao — e o passo
+  // que ninguem lembra de fazer.
+  if (index <= 8 + kSegDigits) {
+    const std::size_t digito = index - 9;
+    for (std::size_t i = 0; i < kSegDigits; ++i) {
+      out->digits[i] = (i == digito) ? 0xFF : 0x00;
+    }
+    out->espera = kEsperaDigito[digito];
+    return true;
+  }
+
+  // Penultimo: a confirmacao final da ordem. Se sair "321", os fios estao
+  // bons e e o mapeamento no HAL que precisa inverter.
+  if (index == 8 + kSegDigits + 1) {
+    SegFrame f;
+    f.text[0] = '1';
+    f.text[1] = '2';
+    f.text[2] = '3';
+    f.text[3] = '\0';
+    encode_frame(f, out->digits, kSegDigits);
+    out->espera = "123 — se aparecer 321, a ordem dos digitos esta invertida";
+    return true;
+  }
+
+  // Ultimo: apagado, para o mostrador nao ficar preso no fim do teste.
+  for (std::size_t i = 0; i < kSegDigits; ++i) out->digits[i] = 0x00;
+  out->espera = "apagado";
+  return true;
+}
+
 bool blink_visible(std::uint32_t now_ms, std::uint32_t period_ms) {
   if (period_ms == 0) return true;  // periodo zero = nao pisca
   return (now_ms % period_ms) < (period_ms / 2);

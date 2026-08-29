@@ -392,6 +392,102 @@ void test_todo_rotulo_do_catalogo_e_desenhavel(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  Autoteste
+// ---------------------------------------------------------------------------
+
+void test_autoteste_recusa_indice_invalido(void) {
+  kanri::display::SegTestStep p;
+  TEST_ASSERT_FALSE(kanri::display::seg_test_step(kanri::display::kSegTestSteps, &p));
+  TEST_ASSERT_FALSE(kanri::display::seg_test_step(9999, &p));
+  TEST_ASSERT_FALSE(kanri::display::seg_test_step(0, nullptr));
+}
+
+void test_autoteste_comeca_com_tudo_aceso(void) {
+  kanri::display::SegTestStep p;
+  TEST_ASSERT_TRUE(kanri::display::seg_test_step(0, &p));
+  for (std::size_t i = 0; i < kSegDigits; ++i) {
+    TEST_ASSERT_EQUAL_HEX8(0xFF, p.digits[i]);
+  }
+}
+
+void test_autoteste_termina_apagado(void) {
+  kanri::display::SegTestStep p;
+  TEST_ASSERT_TRUE(
+      kanri::display::seg_test_step(kanri::display::kSegTestSteps - 1, &p));
+  for (std::size_t i = 0; i < kSegDigits; ++i) {
+    TEST_ASSERT_EQUAL_HEX8(0x00, p.digits[i]);
+  }
+}
+
+// O passo de segmento tem que acender UM bit so, e o MESMO em todos os
+// digitos. Se acendesse dois, um fio solto passaria despercebido.
+void test_cada_passo_de_segmento_acende_um_bit_em_todos_os_digitos(void) {
+  for (std::size_t idx = 1; idx <= 8; ++idx) {
+    kanri::display::SegTestStep p;
+    TEST_ASSERT_TRUE(kanri::display::seg_test_step(idx, &p));
+
+    const std::uint8_t bits = p.digits[0];
+    TEST_ASSERT_NOT_EQUAL(0, bits);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, bits & (bits - 1), "mais de um segmento");
+
+    for (std::size_t d = 1; d < kSegDigits; ++d) {
+      TEST_ASSERT_EQUAL_HEX8(bits, p.digits[d]);
+    }
+  }
+}
+
+// O TESTE QUE PROVA QUE O AUTOTESTE PRESTA.
+//
+// Os oito passos precisam cobrir os oito bits — cada um exatamente uma vez.
+// Um segmento que nenhum passo acende e um segmento cujo defeito o autoteste
+// nao encontra, e aí ele daria uma confianca que nao tem.
+void test_os_oito_passos_cobrem_os_oito_segmentos_sem_repetir(void) {
+  std::uint8_t acumulado = 0;
+  for (std::size_t idx = 1; idx <= 8; ++idx) {
+    kanri::display::SegTestStep p;
+    TEST_ASSERT_TRUE(kanri::display::seg_test_step(idx, &p));
+    TEST_ASSERT_EQUAL_HEX8_MESSAGE(0, acumulado & p.digits[0], "segmento repetido");
+    acumulado |= p.digits[0];
+  }
+  TEST_ASSERT_EQUAL_HEX8(0xFF, acumulado);
+}
+
+// Os passos de digito isolam um digito cada, e juntos cobrem todos.
+void test_passos_de_digito_isolam_e_cobrem_todos(void) {
+  for (std::size_t d = 0; d < kSegDigits; ++d) {
+    kanri::display::SegTestStep p;
+    TEST_ASSERT_TRUE(kanri::display::seg_test_step(9 + d, &p));
+    for (std::size_t i = 0; i < kSegDigits; ++i) {
+      TEST_ASSERT_EQUAL_HEX8(i == d ? 0xFF : 0x00, p.digits[i]);
+    }
+  }
+}
+
+// "123" tem que sair igual ao caminho normal. Se o autoteste usasse outra
+// rota, ele aprovaria uma ordem que o uso real erra.
+void test_passo_da_ordem_bate_com_o_caminho_normal(void) {
+  kanri::display::SegTestStep p;
+  TEST_ASSERT_TRUE(kanri::display::seg_test_step(8 + kSegDigits + 1, &p));
+
+  std::uint8_t esperado[kSegDigits] = {};
+  TEST_ASSERT_TRUE(encode_frame(quadro("123"), esperado, kSegDigits));
+  for (std::size_t i = 0; i < kSegDigits; ++i) {
+    TEST_ASSERT_EQUAL_HEX8(esperado[i], p.digits[i]);
+  }
+}
+
+// Cada passo precisa dizer ao operador o que ele deve estar vendo. Um passo
+// sem rotulo e um passo que ninguem sabe interpretar.
+void test_todo_passo_tem_o_que_esperar_escrito(void) {
+  for (std::size_t i = 0; i < kanri::display::kSegTestSteps; ++i) {
+    kanri::display::SegTestStep p;
+    TEST_ASSERT_TRUE(kanri::display::seg_test_step(i, &p));
+    TEST_ASSERT_NOT_NULL(p.espera);
+    TEST_ASSERT_TRUE(std::strlen(p.espera) > 0);
+  }
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
 
@@ -431,6 +527,15 @@ int main(int, char**) {
   RUN_TEST(test_pisca_metade_do_ciclo_aceso);
   RUN_TEST(test_periodo_zero_nao_pisca);
   RUN_TEST(test_pisca_continua_apos_a_virada_do_contador);
+
+  RUN_TEST(test_autoteste_recusa_indice_invalido);
+  RUN_TEST(test_autoteste_comeca_com_tudo_aceso);
+  RUN_TEST(test_autoteste_termina_apagado);
+  RUN_TEST(test_cada_passo_de_segmento_acende_um_bit_em_todos_os_digitos);
+  RUN_TEST(test_os_oito_passos_cobrem_os_oito_segmentos_sem_repetir);
+  RUN_TEST(test_passos_de_digito_isolam_e_cobrem_todos);
+  RUN_TEST(test_passo_da_ordem_bate_com_o_caminho_normal);
+  RUN_TEST(test_todo_passo_tem_o_que_esperar_escrito);
 
   RUN_TEST(test_toda_saida_do_formatador_e_desenhavel);
   RUN_TEST(test_todo_rotulo_do_catalogo_e_desenhavel);

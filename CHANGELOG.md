@@ -8,6 +8,24 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Autoteste do mostrador**, pelos comandos `teste` e `seg <texto>` no
+  console. Responde sem o carro e sem multímetro as três perguntas que a
+  fiação de um display de 7 segmentos sempre levanta:
+
+  1. **Todo segmento acende?** — um passo por segmento, isolado nos 3 dígitos.
+     Um fio solto aparece como o sumiço de exatamente um traço.
+  2. **Todo dígito acende?** — um passo por dígito.
+  3. **A ordem dos dígitos está certa?** — mostra `123`. Se sair `321`, os
+     fios estão todos bons e o painel mente em silêncio; a correção é uma
+     linha no HAL, não um fio.
+
+  A terceira é a que ninguém lembra de conferir.
+
+  Um teste cobra que os oito passos cubram os oito segmentos **cada um
+  exatamente uma vez** — um segmento que nenhum passo acende é um segmento
+  cujo defeito o autoteste não encontra, e aí ele daria uma confiança que não
+  tem.
+
 - **Driver do MAX7219** — o firmware finalmente acende o mostrador do painel.
   Até aqui a única saída era o `SerialDisplay`, que desenha texto no console:
   a fiação podia estar perfeita e o display ficava apagado.

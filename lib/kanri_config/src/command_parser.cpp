@@ -79,6 +79,14 @@ constexpr Entrada kTabela[] = {
     {"timeout",    CommandAction::SetTimeout,    true,  true},
     {"brilho",     CommandAction::SetBrightness, true,  true},
     {"unidades",   CommandAction::SetUnits,      true,  false},
+    // Autoteste do mostrador: acende segmento por segmento para localizar
+    // fio solto sem multimetro e sem o carro.
+    {"teste",      CommandAction::SegTest,       false, false},
+    {"selftest",   CommandAction::SegTest,       false, false},
+    // Escreve direto no mostrador. Util para conferir a fonte e a ordem dos
+    // digitos com um valor escolhido a mao.
+    {"seg",        CommandAction::SegShow,       true,  false},
+    {"mostrar",    CommandAction::SegShow,       true,  false},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -237,6 +245,8 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::Save:
     case CommandAction::Load:
     case CommandAction::Restart:
+    case CommandAction::SegTest:
+    case CommandAction::SegShow:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -261,6 +271,8 @@ const char* to_string(CommandAction action) {
     case CommandAction::SetTimeout:    return "SetTimeout";
     case CommandAction::SetBrightness: return "SetBrightness";
     case CommandAction::SetUnits:      return "SetUnits";
+    case CommandAction::SegTest:       return "SegTest";
+    case CommandAction::SegShow:       return "SegShow";
   }
   return "Unknown";
 }
