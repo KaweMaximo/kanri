@@ -196,23 +196,78 @@ Opções: alimentar por linha comutada pela ignição, implementar *deep sleep*
 
 ---
 
-## Display (v0.3 — ainda não definido)
+## Display: 7 segmentos, 3 dígitos, via MAX7219
 
-A escolha está aberta de propósito: `IDisplay` isola essa decisão, então
-trocar depois não mexe na lógica.
+**A referência de produto é o FuelTech WB-O2 Nano**: um mostrador compacto de
+LED vermelho, com um número grande, montado no painel e legível de relance —
+inclusive com sol direto.
 
-| Opção | Interface | Prós | Contras |
-|-------|-----------|------|---------|
-| **SSD1306 OLED 128×64** | I²C (2 fios) | Barato, ótimo contraste, fácil | Pequeno; sofre *burn-in* com imagem estática |
-| **ST7789 TFT 240×240** | SPI | Colorido, mais área | Mais pinos, mais RAM de framebuffer |
-| **Nokia 5110** | SPI | Muito barato, legível no sol | Monocromático, baixa resolução |
+| Item | Escolha |
+|---|---|
+| Mostrador | 7 segmentos, **3 dígitos**, com pontos decimais |
+| Driver | **MAX7219** (SPI, 3 fios) |
+| Navegação | **Botão físico** avança para a próxima medida |
 
-**Consideração automotiva:** a cabine vai de sol direto a escuridão total.
-Contraste e brilho ajustável importam mais que resolução. É por isso que
-`IDisplay` já tem `set_brightness()` desde a v0.1.
+### Por que MAX7219 e não um shift register
 
-**Não alimente o display pelo regulador 3,3 V da placa ESP32** se ele puxar
-mais que algumas dezenas de mA — esse regulador é pequeno.
+O MAX7219 faz **multiplexação e brilho por hardware**. Com um 74HC595, o
+firmware teria de redesenhar os dígitos dezenas de vezes por segundo a partir
+de um timer — e cada milissegundo gasto ali é um milissegundo a menos para ler
+o barramento OBD. O MAX7219 recebe o número e cuida do resto.
+
+O brilho por hardware também importa no carro: a cabine vai de sol direto a
+escuridão total, e o `set_brightness()` que `IDisplay` já tem desde a v0.1
+passa a ter para onde ir.
+
+### O que muda no firmware
+
+Três dígitos mostram **uma medida por vez**. O `DisplayFrame` de texto (4
+linhas × 24 caracteres) não serve: "1726 rpm" não cabe em três dígitos.
+
+A abstração para este mostrador é outra — um valor numérico, quantas casas
+decimais usar, e qual medida está no ar. Ver
+[`kanri_display/seven_seg.h`](../lib/kanri_display/include/kanri_display/seven_seg.h).
+
+O `SerialDisplay` e o `DisplayFrame` textual continuam úteis para
+desenvolvimento e diagnóstico pelo painel — são duas saídas, não uma
+substituindo a outra.
+
+### Alimentação do mostrador
+
+**Não alimente o display pelo regulador 3,3 V da placa ESP32.** Um mostrador
+de 7 segmentos com todos os dígitos acesos puxa bem mais que esse regulador
+entrega. O MAX7219 quer **5 V**, e a corrente dos segmentos vem dele, não do
+ESP32 — que fala com ele apenas por três fios de sinal.
+
+## Instalação permanente no veículo
+
+O objetivo é o aparelho ficar **ligado direto no carro**, acendendo com a
+ignição. Isso muda duas coisas em relação à bancada.
+
+### ⚠️ Consumo parasita deixa de ser teórico
+
+Na bancada, o ESP32 é alimentado por USB e desliga com o notebook. Instalado,
+ele fica ligado ao carro **o tempo todo** — e o pino 16 do conector OBD2 é
+normalmente energizado mesmo com o carro desligado.
+
+| Consumo | Efeito em 3 dias |
+|---|---|
+| ESP32 ativo com Bluetooth (~120 mA) | ~8,6 Ah — **suficiente para não dar partida** |
+| ELM327 detectável (~40 mA) | ~2,9 Ah |
+| ESP32 em deep sleep (~10 µA) | desprezível |
+
+**Alimentar pela linha comutada da ignição resolve isso na origem** — o
+aparelho simplesmente não tem energia com o carro desligado, e é o caminho que
+o esquema elétrico deve seguir. Se por algum motivo a alimentação for
+permanente, o firmware precisa entrar em *deep sleep* ao perder o barramento
+(roadmap v0.5).
+
+### O resto continua valendo
+
+Os requisitos elétricos de [SAFETY.md § 5](SAFETY.md#5-requisitos-elétricos--a-rede-de-12-v-é-hostil)
+— regulador de entrada ≥ 40 V, proteção de polaridade, TVS, fusível — valem
+igual, e com mais razão numa instalação permanente: o aparelho passa a viver
+os transientes do veículo todos os dias, não só durante um teste.
 
 ---
 

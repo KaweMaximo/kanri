@@ -77,18 +77,28 @@ do Lancer, e mostra no monitor serial.
 
 ---
 
-## 📋 v0.3.0 — Display físico
+## 📋 v0.3.0 — Mostrador de 7 segmentos no painel
 
-- [ ] Escolher o display (ver [HARDWARE.md](HARDWARE.md#display-v03--ainda-não-definido))
-- [ ] Driver concreto implementando `IDisplay`
-- [ ] `build_frame()` real: telas Splash, Connecting, Dashboard e Error
-- [ ] Formatação com `--` para toda medida com `valid == false`
-- [ ] Tela de erro informativa: qual estado, qual motivo, quanto até retentar
-- [ ] Brilho ajustável
-- [ ] Testes de formatação (com `FakeDisplay`), incluindo truncamento de texto
+Referência de produto: **FuelTech WB-O2 Nano**. Um número grande, legível de
+relance, montado no painel. Ver [HARDWARE.md](HARDWARE.md#display-7-segmentos-3-dígitos-via-max7219).
 
-**Critério de pronto:** dá para dirigir com o aparelho no painel e ler os
-dados sem esforço.
+- [x] `build_frame()` textual completo (serve ao `SerialDisplay` e ao painel web)
+- [ ] `seven_seg`: formatar um valor para **3 dígitos**, escolhendo sozinho
+      quantas casas decimais cabem
+- [ ] Rótulo curto antes do valor ao trocar de medida (`rPn`, `AGU`, `bAt`)
+- [ ] Debounce do botão físico
+- [ ] Driver do **MAX7219** por SPI
+- [ ] Brilho por hardware — a cabine vai de sol direto a escuridão total
+
+**Critério de pronto:** dá para dirigir com o aparelho no painel e ler a
+medida sem esforço, trocando de grandeza com um toque.
+
+## 📋 v0.5.0 — Instalação permanente
+
+- [ ] *Deep sleep* ao perder o barramento, para o caso de a alimentação não
+      ser comutada pela ignição — ESP32 ativo com Bluetooth consome ~120 mA,
+      o bastante para impedir a partida depois de alguns dias
+- [ ] Religar ao detectar atividade no barramento
 
 ---
 

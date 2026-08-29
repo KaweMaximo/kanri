@@ -7,6 +7,40 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Lógica do mostrador de 7 segmentos** (`kanri_display/seven_seg`), para o
+  painel do carro. Referência de produto: FuelTech WB-O2 Nano — um número
+  grande, legível de relance.
+
+  Três dígitos mostram **uma medida por vez**, e a precisão possível depende
+  da grandeza: `9.52 V` cabe com duas casas, `13.8 V` com uma, `120 km/h` com
+  nenhuma. A escolha é automática, sempre pela maior precisão que couber —
+  fixar duas casas desperdiçaria dígito na velocidade, e fixar zero jogaria
+  fora a precisão da tensão, que é justamente onde ela importa.
+
+  Rotação não cabe em dígitos inteiros e vai em **milhares** (`1.73` para
+  1726 rpm), como num tacômetro digital.
+- **Debounce do botão** (`kanri_core/button`), com clique e toque longo.
+  Contato mecânico treme: lido cru, um toque vira cinco, e o motorista veria a
+  grandeza pular sem entender. Reproduzir tremulação de propósito no hardware
+  é difícil; como função pura do tempo, cada padrão virou um teste de
+  microssegundos — inclusive ligar o aparelho **com o botão já pressionado**,
+  que não pode gerar clique fantasma.
+
+### Corrigido
+- **O sinal de menos não era descontado** na conta de quantos dígitos cabem:
+  −40 °C virava `-40.` — com um ponto solto, porque a casa decimal não tinha
+  onde caber. Pego por teste.
+- **O rótulo da temperatura era indesenhável.** `AGU` tem a letra G, que não
+  tem forma reconhecível em 7 segmentos e viraria um borrão — o motorista
+  leria a grandeza errada. Trocado por `tEP`, e há um teste que cobra o
+  alfabeto de todos os rótulos.
+- **O firmware compilava como C++11.** O framework Arduino injeta
+  `-std=gnu++11` **depois** das nossas flags, e a última vence. As variáveis
+  `inline` dos catálogos viravam warning e funcionavam por sorte do linker,
+  não por garantia da linguagem. Corrigido com `build_unflags`.
+
+
 > **Primeira leitura real de um veículo.** Em 29/08/2026 o Kanri conectou ao
 > ELM327 de um Mitsubishi Lancer 2.0 2014 e leu o motor em funcionamento:
 > 933–968 rpm em marcha lenta, temperatura subindo de 46 °C a 75 °C, tensão de
