@@ -49,49 +49,53 @@ struct Entrada {
   CommandAction acao;
   bool precisa_argumento;
   bool argumento_numerico;
+  /// Espera DOIS numeros separados por espaco, em `number` e `number2`.
+  bool argumento_dois_numeros;
 };
 
 // Aceita tanto "set nome X" quanto "nome X": o `set` e opcional, porque
 // digitar dentro do carro deve ser o mais curto possivel.
 constexpr Entrada kTabela[] = {
-    {"help",       CommandAction::Help,          false, false},
-    {"ajuda",      CommandAction::Help,          false, false},
-    {"?",          CommandAction::Help,          false, false},
-    {"status",     CommandAction::Status,        false, false},
-    {"scan",       CommandAction::Scan,          false, false},
-    {"varrer",     CommandAction::Scan,          false, false},
-    {"save",       CommandAction::Save,          false, false},
-    {"salvar",     CommandAction::Save,          false, false},
-    {"load",       CommandAction::Load,          false, false},
-    {"carregar",   CommandAction::Load,          false, false},
-    {"defaults",   CommandAction::Defaults,      false, false},
-    {"padroes",    CommandAction::Defaults,      false, false},
-    {"restart",    CommandAction::Restart,       false, false},
-    {"reiniciar",  CommandAction::Restart,       false, false},
-    {"dtc",        CommandAction::ReadDtc,       false, false},
-    {"falhas",     CommandAction::ReadDtc,       false, false},
-    {"nome",       CommandAction::SetName,       true,  false},
-    {"name",       CommandAction::SetName,       true,  false},
-    {"mac",        CommandAction::SetMac,        true,  false},
-    {"pin",        CommandAction::SetPin,        true,  false},
-    {"intervalo",  CommandAction::SetInterval,   true,  true},
-    {"interval",   CommandAction::SetInterval,   true,  true},
-    {"timeout",    CommandAction::SetTimeout,    true,  true},
-    {"brilho",     CommandAction::SetBrightness, true,  true},
-    {"unidades",   CommandAction::SetUnits,      true,  false},
+    {"help",       CommandAction::Help,          false, false, false},
+    {"ajuda",      CommandAction::Help,          false, false, false},
+    {"?",          CommandAction::Help,          false, false, false},
+    {"status",     CommandAction::Status,        false, false, false},
+    {"scan",       CommandAction::Scan,          false, false, false},
+    {"varrer",     CommandAction::Scan,          false, false, false},
+    {"save",       CommandAction::Save,          false, false, false},
+    {"salvar",     CommandAction::Save,          false, false, false},
+    {"load",       CommandAction::Load,          false, false, false},
+    {"carregar",   CommandAction::Load,          false, false, false},
+    {"defaults",   CommandAction::Defaults,      false, false, false},
+    {"padroes",    CommandAction::Defaults,      false, false, false},
+    {"restart",    CommandAction::Restart,       false, false, false},
+    {"reiniciar",  CommandAction::Restart,       false, false, false},
+    {"dtc",        CommandAction::ReadDtc,       false, false, false},
+    {"falhas",     CommandAction::ReadDtc,       false, false, false},
+    {"nome",       CommandAction::SetName,       true,  false, false},
+    {"name",       CommandAction::SetName,       true,  false, false},
+    {"mac",        CommandAction::SetMac,        true,  false, false},
+    {"pin",        CommandAction::SetPin,        true,  false, false},
+    {"intervalo",  CommandAction::SetInterval,   true,  true, false},
+    {"interval",   CommandAction::SetInterval,   true,  true, false},
+    {"timeout",    CommandAction::SetTimeout,    true,  true, false},
+    {"brilho",     CommandAction::SetBrightness, true,  true, false},
+    {"unidades",   CommandAction::SetUnits,      true,  false, false},
     // Autoteste do mostrador: acende segmento por segmento para localizar
     // fio solto sem multimetro e sem o carro.
-    {"teste",      CommandAction::SegTest,       false, false},
-    {"selftest",   CommandAction::SegTest,       false, false},
+    {"teste",      CommandAction::SegTest,       false, false, false},
+    {"selftest",   CommandAction::SegTest,       false, false, false},
     // Escreve direto no mostrador. Util para conferir a fonte e a ordem dos
     // digitos com um valor escolhido a mao.
-    {"seg",        CommandAction::SegShow,       true,  false},
-    {"mostrar",    CommandAction::SegShow,       true,  false},
+    {"seg",        CommandAction::SegShow,       true,  false, false},
+    {"mostrar",    CommandAction::SegShow,       true,  false, false},
     // Solta o mostrador: volta a mostrar a telemetria do carro.
-    {"auto",       CommandAction::SegAuto,       false, false},
+    {"auto",       CommandAction::SegAuto,       false, false, false},
     // Leitura crua do ADC: e o unico jeito de conferir a fiacao do
     // potenciometro, ja que um pino solto tambem "le" alguma coisa.
-    {"pot",        CommandAction::PotStatus,     false, false},
+    {"pot",        CommandAction::PotStatus,     false, false, false},
+    // Acionar um pino livre da bancada, sem gravar firmware a cada teste.
+    {"gpio",       CommandAction::GpioWrite,     true,  false, true},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -174,6 +178,24 @@ ParsedCommand parse_command(const char* line, std::size_t len) {
       return erro(CommandError::MissingArgument);
     }
     if (arg_len >= kMaxArgLen) return erro(CommandError::ArgumentTooLong);
+
+    if (kTabela[i].argumento_dois_numeros) {
+      // "22 1" -> number=22, number2=1. Separados de proposito: sao coisas
+      // diferentes, e um argumento so faria alguem inverter a ordem.
+      std::size_t corte = arg_ini;
+      while (corte < fim && !espaco(line[corte])) ++corte;
+      if (corte >= fim) return erro(CommandError::MissingArgument);
+
+      std::size_t seg = corte;
+      while (seg < fim && espaco(line[seg])) ++seg;
+      if (seg >= fim) return erro(CommandError::MissingArgument);
+
+      if (!para_numero(line + arg_ini, corte - arg_ini, comando.number) ||
+          !para_numero(line + seg, fim - seg, comando.number2)) {
+        return erro(CommandError::InvalidNumber);
+      }
+      return comando;
+    }
 
     if (kTabela[i].argumento_numerico) {
       if (!para_numero(line + arg_ini, arg_len, comando.number)) {
@@ -270,6 +292,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::SegShow:
     case CommandAction::SegAuto:
     case CommandAction::PotStatus:
+    case CommandAction::GpioWrite:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -298,6 +321,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::SegShow:       return "SegShow";
     case CommandAction::SegAuto:       return "SegAuto";
     case CommandAction::PotStatus:     return "PotStatus";
+    case CommandAction::GpioWrite:     return "GpioWrite";
   }
   return "Unknown";
 }
@@ -340,6 +364,7 @@ const char* const* help_lines() {
       "  seg <texto>        escreve e SEGURA a tela (ex.: seg 13.8, seg 8--)",
       "  auto               devolve a tela para a telemetria",
       "  pot                leitura crua do potenciometro de brilho",
+      "  gpio <pino> <0|1>  aciona um pino livre (recusa os ocupados)",
       nullptr,
   };
   return kAjuda;
