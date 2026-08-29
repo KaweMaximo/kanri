@@ -93,6 +93,20 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ### Adicionado
 - Comando `auto`: devolve o mostrador à telemetria.
+- **Teste que cobra a documentação de todo comando.** `teste`, `seg` e `auto`
+  foram adicionados, funcionavam, e não apareciam nem na `ajuda` do firmware
+  nem na dica do painel — comandos que só quem escreveu conhecia.
+
+  A regra agora é de máquina: toda **ação** do parser precisa ter ao menos uma
+  de suas palavras citada em `help_lines()`. Por ação e não por palavra, porque
+  `help` e `ajuda` fazem a mesma coisa e documentar as duas seria ruído.
+
+  O teste inverso também entrou: toda palavra listada precisa ser aceita pelo
+  parser. Ajuda que documenta comando inexistente é pior do que ajuda faltando.
+
+### Corrigido
+- A `ajuda` não se listava, e os três comandos do mostrador não estavam nela.
+  A dica do campo de comando do painel também passou a citá-los.
 
 ### Corrigido
 - **O comando `brilho` não chegava ao MAX7219.** Ele alterava as configurações

@@ -109,6 +109,20 @@ const char* to_string(CommandAction action);
 const char* to_string(CommandError error);
 
 /// Texto de ajuda, uma linha por comando. Termina com nullptr.
+/// Uma palavra aceita pelo console e a acao que ela dispara.
+struct CommandWord {
+  const char* word;
+  CommandAction action;
+};
+
+/// Todas as palavras aceitas, terminadas por uma entrada com `word` nulo.
+///
+/// Existe para o teste cobrar que toda ACAO apareca em help_lines(). Nao toda
+/// palavra: `help` e `ajuda` fazem a mesma coisa, e documentar as duas seria
+/// ruido. Mas uma acao que nenhuma palavra dela aparece na ajuda e uma acao
+/// que ninguem descobre — foi o que aconteceu com `teste`, `seg` e `auto`.
+const CommandWord* command_words();
+
 const char* const* help_lines();
 
 }  // namespace kanri::config
