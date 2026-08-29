@@ -329,6 +329,87 @@ void test_sucesso_reseta_o_backoff(void) {
   TEST_ASSERT_EQUAL_UINT32(0, policy.attempt_count());
 }
 
+// --------------------------------------------------------------------------
+//  Predicados de transicao — e a regressao do backoff preso no teto
+// --------------------------------------------------------------------------
+
+// Varredura de TODOS os pares (anterior, atual). A expectativa e escrita aqui
+// de forma independente da implementacao: "operar" e, e so e, estar em
+// Polling. Se alguem um dia acrescentar um segundo estado operacional, este
+// teste falha e obriga a decisao a ser explicita.
+void test_predicados_de_transicao_em_todos_os_pares(void) {
+  for (const AppState anterior : kAllStates) {
+    for (const AppState atual : kAllStates) {
+      const bool era = (anterior == AppState::Polling);
+      const bool esta = (atual == AppState::Polling);
+
+      TEST_ASSERT_EQUAL_INT(static_cast<int>(!era && esta),
+                            static_cast<int>(entered_operation(anterior, atual)));
+      TEST_ASSERT_EQUAL_INT(static_cast<int>(era && !esta),
+                            static_cast<int>(left_operation(anterior, atual)));
+    }
+  }
+}
+
+// Ficar parado em Polling nao e "recuperar". Se fosse, o backoff seria zerado
+// a cada volta do laco principal e o teste abaixo passaria por acidente.
+void test_permanecer_operando_nao_conta_como_recuperacao(void) {
+  TEST_ASSERT_FALSE(entered_operation(AppState::Polling, AppState::Polling));
+  TEST_ASSERT_FALSE(left_operation(AppState::Polling, AppState::Polling));
+}
+
+// Os dois predicados sao mutuamente exclusivos: nenhuma transicao entra e sai
+// de operacao ao mesmo tempo.
+void test_entrar_e_sair_de_operacao_sao_exclusivos(void) {
+  for (const AppState anterior : kAllStates) {
+    for (const AppState atual : kAllStates) {
+      TEST_ASSERT_FALSE(entered_operation(anterior, atual) &&
+                        left_operation(anterior, atual));
+    }
+  }
+}
+
+// REGRESSAO — o bug encontrado no carro em 29/08/2026.
+//
+// O firmware rodou 20 minutos, perdeu o link 28 vezes e reconectou 28 vezes.
+// Como on_success() nunca era chamado, o backoff subiu 1s, 2s, 4s ... 30s e
+// ficou no teto. O painel mostrava "Tentativa #24, prox. retry 30000 ms"
+// enquanto o estado era Polling — leia-se: operando normalmente, mas com a
+// proxima queda ja condenada a 30 segundos de tela apagada.
+//
+// Este teste percorre a maquina de estados de verdade e aplica a regra pelos
+// predicados, exatamente como o main.cpp faz.
+void test_reconectar_devolve_o_backoff_ao_valor_base(void) {
+  RetryPolicy policy(1000, 30000);
+  AppState estado = AppState::Polling;
+
+  const auto avancar = [&](AppEvent evento) {
+    const AppState anterior = estado;
+    estado = next_state(anterior, evento);
+    if (entered_operation(anterior, estado)) policy.on_success();
+    if (estado != anterior && estado == AppState::Degraded) policy.record_failure();
+  };
+
+  // Cinco ciclos de "caiu e voltou", como no carro parado com a ignicao ligada.
+  for (int ciclo = 0; ciclo < 5; ++ciclo) {
+    avancar(AppEvent::VehicleLinkDown);   // Polling -> Degraded
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(AppState::Degraded),
+                          static_cast<int>(estado));
+    avancar(AppEvent::RetryTimerExpired);  // Degraded  -> ScanningAdapter
+    avancar(AppEvent::AdapterFound);       //           -> ConnectingAdapter
+    avancar(AppEvent::AdapterConnected);   //           -> InitializingElm
+    avancar(AppEvent::ElmReady);           //           -> ConnectingVehicle
+    avancar(AppEvent::VehicleLinkUp);      //           -> Polling
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(AppState::Polling),
+                          static_cast<int>(estado));
+
+    // O ponto do teste: cada reconexao zera o contador. Antes da correcao,
+    // aqui chegaria 1, 2, 3, 4, 5 e o delay teria subido junto.
+    TEST_ASSERT_EQUAL_UINT32(0, policy.attempt_count());
+    TEST_ASSERT_EQUAL_UINT32(1000, policy.current_delay_ms());
+  }
+}
+
 void test_backoff_com_parametros_degenerados(void) {
   RetryPolicy zero_base(0, 1000);  // base 0 seria um loop apertado
   TEST_ASSERT_GREATER_THAN_UINT32(0, zero_base.current_delay_ms());
@@ -375,6 +456,10 @@ int main() {
   RUN_TEST(test_backoff_para_no_teto);
   RUN_TEST(test_backoff_nao_estoura_o_inteiro);
   RUN_TEST(test_sucesso_reseta_o_backoff);
+  RUN_TEST(test_predicados_de_transicao_em_todos_os_pares);
+  RUN_TEST(test_permanecer_operando_nao_conta_como_recuperacao);
+  RUN_TEST(test_entrar_e_sair_de_operacao_sao_exclusivos);
+  RUN_TEST(test_reconectar_devolve_o_backoff_ao_valor_base);
   RUN_TEST(test_backoff_com_parametros_degenerados);
   RUN_TEST(test_intervalo_correto_no_overflow_do_contador);
 

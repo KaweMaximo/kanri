@@ -7,7 +7,34 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido
+- **O backoff de reconexão ficava preso no teto de 30 s para sempre.** O
+  `main.cpp` nunca chamava `RetryPolicy::on_success()`, então o contador de
+  tentativas só crescia durante toda a vida do aparelho.
+
+  Encontrado em campo, no carro, em 29/08/2026: o firmware rodou 20 minutos,
+  perdeu e recuperou o link 28 vezes, e o painel mostrava *"Tentativa #24,
+  próx. retry 30000 ms"* enquanto o estado era `Polling` — ou seja, operando
+  normalmente, mas com a próxima queda já condenada a **30 segundos de tela
+  apagada** em vez de 1 segundo.
+
+  Num aparelho que vai ficar permanentemente no carro, isso é a diferença
+  entre uma piscada e meio minuto sem informação no painel.
+
 ### Adicionado
+- `entered_operation()` e `left_operation()` em `state_machine.h`: predicados
+  **de transição** (dependem do par anterior/atual, não só do estado atual).
+
+  Existem para tirar do `main.cpp` — a única parte do projeto sem teste — as
+  decisões que dependem de "de onde viemos". Comparar estados na mão ali é
+  barato de escrever e caro de descobrir: foi exatamente assim que o backoff
+  quebrou. É a **segunda** vez que um defeito desta família nasce nesse
+  arquivo; a primeira está documentada em `retry_policy.h`.
+
+  Cobertos por varredura de todos os pares de estados, com a expectativa
+  escrita de forma independente da implementação, mais um teste de regressão
+  que percorre cinco ciclos de "caiu e voltou" e cobra o backoff no valor base.
+
 - **Catálogo de PIDs expandido de 18 para 50 entradas**, cobrindo ajuste de
   combustível (os quatro *fuel trims*), pressão de combustível e do rail,
   EGR, purga do canister, pressão evaporativa e barométrica, temperatura dos

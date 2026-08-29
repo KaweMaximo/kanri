@@ -170,12 +170,19 @@ void dispatch(kanri::core::AppEvent event) {
 
   // Ao sair de operacao normal, invalidamos as medidas na hora. Melhor a tela
   // mostrar "--" do que um valor de 10 segundos atras parecendo atual.
-  if (previous == kanri::core::AppState::Polling &&
-      g_state != kanri::core::AppState::Polling) {
+  if (kanri::core::left_operation(previous, g_state)) {
     kanri::core::invalidate_all(g_telemetry);
     // Esquece o mapa de suporte: a proxima conexao pode ser outro carro, e
     // herdar o mapa do anterior faria o firmware pular PIDs que existem.
     g_suporte.reset();
+  }
+
+  // Voltamos a operar: o backoff cumpriu o papel dele e precisa voltar ao
+  // valor base. Sem esta linha o intervalo so cresce, e depois de algumas
+  // reconexoes qualquer queda momentanea custa 30 s de tela apagada dentro
+  // do carro. Ver test_reconectar_devolve_o_backoff_ao_valor_base.
+  if (kanri::core::entered_operation(previous, g_state)) {
+    g_retry.on_success();
   }
 
   if (g_state == kanri::core::AppState::Degraded) {

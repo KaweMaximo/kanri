@@ -72,6 +72,34 @@ constexpr bool is_error_state(AppState s) {
 /// true quando o estado espera um timer de retentativa para avancar.
 constexpr bool waits_for_retry(AppState s) { return s == AppState::Degraded; }
 
+// --------------------------------------------------------------------------
+//  Predicados de TRANSICAO (nao de estado)
+// --------------------------------------------------------------------------
+//  Existem para tirar da "cola" (main.cpp) decisoes que dependem do par
+//  (anterior, atual). Comparar estados na mao ali e barato de escrever e caro
+//  de descobrir: foi assim que o backoff ficou preso no teto por 28
+//  reconexoes seguidas, porque ninguem se lembrou de chamar on_success().
+//
+//  A regra vira uma funcao pura com nome proprio, e o teste cobra.
+// --------------------------------------------------------------------------
+
+/// true quando a transicao ENTRA em operacao normal — ou seja, RECUPERAMOS.
+///
+/// Este e o momento de zerar o backoff (RetryPolicy::on_success()). Sem isso,
+/// o intervalo de retentativa so cresce durante toda a vida do aparelho, e
+/// uma queda momentanea passa a custar 30 s de tela apagada em vez de 1 s.
+constexpr bool entered_operation(AppState previous, AppState current) {
+  return is_operational(current) && !is_operational(previous);
+}
+
+/// true quando a transicao SAI de operacao normal.
+///
+/// Este e o momento de invalidar as medidas na tela: um numero de 10 segundos
+/// atras, parado, e pior do que um "--" honesto.
+constexpr bool left_operation(AppState previous, AppState current) {
+  return is_operational(previous) && !is_operational(current);
+}
+
 /// Nomes legiveis, para log e para o display. Nunca devolve nullptr.
 const char* to_string(AppState s);
 const char* to_string(AppEvent e);
