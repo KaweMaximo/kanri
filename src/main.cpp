@@ -44,6 +44,7 @@
 
 #include "kanri_core/button.h"
 #include "kanri_display/brightness_knob.h"
+#include "kanri_display/smoothing.h"
 #include "kanri_display/max7219.h"
 #include "kanri_display/view_model.h"
 
@@ -136,6 +137,47 @@ kanri::hal::SerialDisplay g_display;
 kanri::hal::Max7219Display g_seg(kSegDin, kSegClk, kSegLoad);
 kanri::core::Button g_botao;
 kanri::display::BrightnessKnob g_knob;
+
+// ---------------------------------------------------------------------------
+//  O painel roda no OUTRO nucleo
+// ---------------------------------------------------------------------------
+//  Porque o laco principal BLOQUEIA. BluetoothSerial::connect() segura ate
+//  10 s; cada leitura de PID segura ate 1 s. Enquanto isso, no desenho
+//  antigo, o potenciometro nao era lido, o botao nao respondia e o mostrador
+//  nao redesenhava.
+//
+//  O sintoma que isso produzia: "so funciona conectado". Com o carro
+//  respondendo, o laco gira rapido e tudo parecia bem; sem conexao, o painel
+//  congelava por 10 s a cada tentativa.
+//
+//  Num aparelho fixo no carro isso e inaceitavel — o brilho tem de responder
+//  com a ignicao ligada e o motor desligado, com o adaptador fora do ar, com
+//  o que for. O painel nao depende do carro para ser painel.
+//
+//  Entao ele virou uma task no nucleo 0 (o laco do Arduino roda no 1). O
+//  Bluetooth pode bloquear a vontade que a tela continua viva.
+//
+//  REGRA que mantem isso seguro: TODO acesso ao mostrador acontece na task
+//  do painel. O console nao escreve no SPI — ele deixa um pedido aqui, sob
+//  trava, e a task atende. Dois nucleos disputando o mesmo barramento SPI
+//  dariam corrupcao intermitente, do tipo que nao se reproduz.
+struct PainelCompartilhado {
+  kanri::core::TelemetrySnapshot telemetria;
+  kanri::core::AppState estado = kanri::core::AppState::Boot;
+  std::uint8_t brilho_alvo_pct = 30;
+  bool manual = false;
+  std::uint8_t manual_digits[kanri::display::kSegDigits] = {};
+  std::size_t teste_passo = kanri::display::kSegTestSteps;
+  std::uint16_t pot_raw = 0;
+  std::uint8_t pot_nivel = 0;
+};
+
+portMUX_TYPE g_painel_mux = portMUX_INITIALIZER_UNLOCKED;
+PainelCompartilhado g_painel;
+
+/// Periodo da task de painel. 20 ms = 50 Hz: suave para o olho, e barato —
+/// tres palavras de 16 bits a 1 MHz sao 48 us, 0,24% do tempo.
+constexpr std::uint32_t kPainelPeriodoMs = 20;
 kanri::hal::NvsConfigStore g_config_store;
 kanri::hal::BtSerialTransport g_transport("Kanri");
 kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
@@ -153,24 +195,12 @@ kanri::core::RetryPolicy g_retry(kRetryBaseMs, kRetryMaxMs);
 
 std::uint32_t g_degraded_since_ms = 0;
 std::uint32_t g_last_render_ms = 0;
-std::uint32_t g_last_seg_ms = 0;
 std::size_t g_medida_idx = 0;
 
 // Autoteste do mostrador. kSegTestSteps = "parado"; qualquer valor abaixo e
 // o passo em curso. Roda pelo laco, sem bloquear: 14 passos a 1,2 s dariam
 // 17 segundos, e o watchdog estoura em 8.
-std::size_t g_teste_passo = kanri::display::kSegTestSteps;
-std::uint32_t g_teste_ms = 0;
-std::uint32_t g_pot_ms = 0;
-std::uint16_t g_pot_raw = 0;
 
-// Mostrador preso num valor escrito a mao pelo comando `seg`.
-//
-// Sem isto o comando so pisca: a telemetria redesenha 10 vezes por segundo e
-// apaga o que foi escrito em 100 ms. O operador ve o valor aparecer e sumir,
-// e conclui que o display esta com defeito — quando na verdade os dois donos
-// da tela estao brigando por ela.
-bool g_seg_manual = false;
 constexpr std::uint32_t kTestePassoMs = 1200;
 /// Intervalo a cumprir na espera atual, fixado ao entrar em Degraded.
 std::uint32_t g_retry_delay_ms = 0;
@@ -608,7 +638,10 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     case CommandAction::PotStatus: {
       // Le na hora, sem esperar o intervalo: quem digitou o comando esta
       // com a mao no botao querendo ver o numero mexer.
-      const std::uint16_t raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+      std::uint16_t raw;
+      portENTER_CRITICAL(&g_painel_mux);
+      raw = g_painel.pot_raw;
+      portEXIT_CRITICAL(&g_painel_mux);
       Serial.printf("[pot] GPIO %u  adc=%u/%u\n",
                     static_cast<unsigned>(kPotPin), static_cast<unsigned>(raw),
                     static_cast<unsigned>(kanri::display::kAdcMax));
@@ -622,13 +655,16 @@ void executar(const kanri::config::ParsedCommand& cmd) {
       return;
     }
     case CommandAction::SegAuto:
-      g_seg_manual = false;
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.manual = false;
+      portEXIT_CRITICAL(&g_painel_mux);
       Serial.println(F("[7seg] de volta a telemetria"));
       return;
     case CommandAction::SegTest:
-      g_seg_manual = false;
-      g_teste_passo = 0;
-      g_teste_ms = 0;
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.manual = false;
+      g_painel.teste_passo = 0;
+      portEXIT_CRITICAL(&g_painel_mux);
       Serial.println(F("[7seg] autoteste — confira cada passo no mostrador"));
       return;
     case CommandAction::SegShow: {
@@ -642,9 +678,13 @@ void executar(const kanri::config::ParsedCommand& cmd) {
                       static_cast<unsigned>(kanri::display::kSegDigits));
         return;
       }
-      g_teste_passo = kanri::display::kSegTestSteps;  // sai do autoteste
-      g_seg_manual = true;  // segura a tela ate `auto` ou um toque no botao
-      g_seg.render_raw(d, kanri::display::kSegDigits);
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.teste_passo = kanri::display::kSegTestSteps;  // sai do autoteste
+      g_painel.manual = true;  // segura a tela ate `auto` ou um toque no botao
+      for (std::size_t i = 0; i < kanri::display::kSegDigits; ++i) {
+        g_painel.manual_digits[i] = d[i];
+      }
+      portEXIT_CRITICAL(&g_painel_mux);
       Serial.printf("[7seg] mostrando \"%s\"\n", cmd.text);
       return;
     }
@@ -665,7 +705,10 @@ void executar(const kanri::config::ParsedCommand& cmd) {
     // brilho e o controle de corrente do MAX7219, entao "nao muda nada" e
     // exatamente o que nao se quer quando a fonte esta no limite.
     if (cmd.action == kanri::config::CommandAction::SetBrightness) {
-      g_seg.set_brightness(g_settings.display_brightness);
+      // Deixa o ALVO; quem escreve no chip e a task do painel, em rampa.
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.brilho_alvo_pct = g_settings.display_brightness;
+      portEXIT_CRITICAL(&g_painel_mux);
     }
     aplicar_tempos_do_obd();
     // O alvo da varredura muda na hora: assim da para corrigir o nome e ver
@@ -711,134 +754,180 @@ void heartbeat_if_due() {
                 static_cast<unsigned>(agora / 1000U));
 }
 
-/// Le o botao e troca a medida exibida.
-///
-/// Chamado a cada volta do laco, nao por temporizador: o antirrebote precisa
-/// ver as transicoes para filtrar o ruido mecanico do contato.
-void ler_botao() {
-  // INPUT_PULLUP inverte a logica: o pino em nivel BAIXO e o botao apertado.
+// ---------------------------------------------------------------------------
+//  A task do painel — roda no nucleo 0, independente do OBD
+// ---------------------------------------------------------------------------
+
+/// Um suavizador por medida: cada grandeza tem historico proprio, senao
+/// trocar de medida no botao arrastaria o valor da anterior.
+kanri::display::ValueSmoother* suavizador_da_medida(std::size_t idx) {
+  static kanri::display::ValueSmoother* tabela[kanri::display::kSegMeasureMax] = {};
+  static bool pronto = false;
+  if (!pronto) {
+    for (std::size_t i = 0; i < kanri::display::kSegMeasureCount; ++i) {
+      tabela[i] = new kanri::display::ValueSmoother(
+          kanri::display::kSegMeasures[i].span);
+    }
+    pronto = true;
+  }
+  if (idx >= kanri::display::kSegMeasureCount) idx = 0;
+  return tabela[idx];
+}
+
+/// Le o potenciometro. Roda na task do painel, entao NAO para quando o
+/// Bluetooth bloqueia — que era exatamente o defeito.
+void painel_ler_potenciometro() {
+  const std::uint16_t raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+
+  if (g_knob.update(raw)) {
+    const std::uint8_t pct = g_knob.percent();
+    portENTER_CRITICAL(&g_painel_mux);
+    g_painel.brilho_alvo_pct = pct;
+    portEXIT_CRITICAL(&g_painel_mux);
+    Serial.printf("[pot] nivel %u/%u — brilho %u%% (adc %u)\n",
+                  static_cast<unsigned>(g_knob.level() + 1),
+                  static_cast<unsigned>(kanri::display::kKnobLevels),
+                  static_cast<unsigned>(pct), static_cast<unsigned>(raw));
+  }
+
+  portENTER_CRITICAL(&g_painel_mux);
+  g_painel.pot_raw = raw;
+  g_painel.pot_nivel = g_knob.level();
+  portEXIT_CRITICAL(&g_painel_mux);
+}
+
+/// Le o botao que troca a medida exibida.
+void painel_ler_botao() {
   const bool apertado = (digitalRead(kBotaoPin) == LOW);
 
-  switch (g_botao.update(apertado, g_clock.now_ms())) {
+  switch (g_botao.update(apertado, millis())) {
     case kanri::core::ButtonEvent::Click:
-      // Um toque no botao quer dizer "quero ver o carro". Solta a tela.
-      g_seg_manual = false;
       g_medida_idx = (g_medida_idx + 1) % kanri::display::kSegMeasureCount;
+      // Um toque quer dizer "quero ver o carro": solta a tela do modo manual.
+      portENTER_CRITICAL(&g_painel_mux);
+      g_painel.manual = false;
+      portEXIT_CRITICAL(&g_painel_mux);
       Serial.printf("[botao] medida -> %s\n",
                     kanri::display::kSegMeasures[g_medida_idx].key);
-      // Redesenha na hora: esperar o proximo ciclo faria o toque parecer
-      // perdido, e o motorista aperta de novo.
-      g_last_seg_ms = 0;
       break;
     case kanri::core::ButtonEvent::LongPress:
       g_medida_idx = 0;
       Serial.println(F("[botao] toque longo — volta para a primeira medida"));
-      g_last_seg_ms = 0;
       break;
     default:
       break;
   }
 }
 
-/// Le o potenciometro de brilho e aplica, se o nivel tiver mudado.
+/// Aplica o brilho EM RAMPA, um passo do chip por quadro.
 ///
-/// So escreve no chip na MUDANCA. E o que evita brigar com o comando
-/// `brilho` do console: sem isso, o potenciometro desfaria o comando cinco
-/// vezes por segundo — o mesmo defeito que o `seg` teve com a telemetria.
-/// Assim, o comando vale ate alguem girar o botao, que e como um controle
-/// fisico deve se comportar.
-void ler_potenciometro() {
-  const std::uint32_t now = g_clock.now_ms();
-  if (g_pot_ms != 0 &&
-      kanri::core::elapsed_ms(now, g_pot_ms) < kPotIntervalMs) {
-    return;
-  }
-  g_pot_ms = now;
+/// Girar o potenciometro pula degraus inteiros de intensidade; caminhar um
+/// passo por quadro transforma o degrau em transicao. A 50 Hz, atravessar a
+/// escala inteira do MAX7219 leva 0,3 s.
+void painel_aplicar_brilho() {
+  static std::uint8_t atual = 0xFF;  // 0xFF = ainda nao inicializado
 
-  // Leitura CRUA, sem media. A media parece melhoria e nao e: ela aproximaria
-  // um pino solto do meio da escala, fazendo lixo parecer posicao estavel. O
-  // filtro precisa ver o ruido para poder rejeita-lo.
-  g_pot_raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+  std::uint8_t alvo_pct;
+  portENTER_CRITICAL(&g_painel_mux);
+  alvo_pct = g_painel.brilho_alvo_pct;
+  portEXIT_CRITICAL(&g_painel_mux);
 
-  if (g_knob.update(g_pot_raw)) {
-    const std::uint8_t pct = g_knob.percent();
-    g_settings.display_brightness = pct;
-    g_seg.set_brightness(pct);
-    Serial.printf("[pot] nivel %u/%u — brilho %u%% (adc %u)\n",
-                  static_cast<unsigned>(g_knob.level() + 1),
-                  static_cast<unsigned>(kanri::display::kKnobLevels),
-                  static_cast<unsigned>(pct),
-                  static_cast<unsigned>(g_pot_raw));
-  }
+  const std::uint8_t alvo = kanri::display::intensity_from_percent(alvo_pct);
+  if (atual == 0xFF) atual = alvo;
+  if (atual == alvo) return;
+
+  atual = kanri::display::step_toward(atual, alvo);
+  g_seg.set_intensity(atual);
 }
 
-/// Desenha o mostrador de tres digitos do painel.
-/// Avanca o autoteste, se houver um em curso.
-/// @return true se o autoteste esta no comando do mostrador agora.
-bool autoteste_em_curso() {
-  if (g_teste_passo >= kanri::display::kSegTestSteps) return false;
+/// Um quadro do painel.
+void painel_desenhar() {
+  PainelCompartilhado copia;
+  portENTER_CRITICAL(&g_painel_mux);
+  copia = g_painel;
+  portEXIT_CRITICAL(&g_painel_mux);
 
-  const std::uint32_t now = g_clock.now_ms();
-  if (g_teste_ms != 0 &&
-      kanri::core::elapsed_ms(now, g_teste_ms) < kTestePassoMs) {
-    return true;  // segurando o passo atual
-  }
-  g_teste_ms = now;
+  // 1) Autoteste manda em tudo enquanto roda.
+  if (copia.teste_passo < kanri::display::kSegTestSteps) {
+    static std::uint32_t ultimo = 0;
+    const std::uint32_t agora = millis();
+    if (ultimo != 0 && kanri::core::elapsed_ms(agora, ultimo) < 1200) return;
+    ultimo = agora;
 
-  kanri::display::SegTestStep passo;
-  if (!kanri::display::seg_test_step(g_teste_passo, &passo)) {
-    g_teste_passo = kanri::display::kSegTestSteps;
-    return false;
-  }
-
-  Serial.printf("[7seg] passo %u/%u: %s\n",
-                static_cast<unsigned>(g_teste_passo + 1),
-                static_cast<unsigned>(kanri::display::kSegTestSteps),
-                passo.espera);
-  g_seg.render_raw(passo.digits, kanri::display::kSegDigits);
-
-  ++g_teste_passo;
-  if (g_teste_passo >= kanri::display::kSegTestSteps) {
-    Serial.println(F("[7seg] autoteste concluido"));
-  }
-  return true;
-}
-
-void render_seg_if_due() {
-  // O autoteste manda no mostrador enquanto roda: intercalar a telemetria
-  // faria os passos piscarem e o operador nao conseguiria conferir nada.
-  if (autoteste_em_curso()) return;
-
-  // Valor escrito a mao manda na tela ate ser solto. Ver g_seg_manual.
-  if (g_seg_manual) return;
-
-  const std::uint32_t now = g_clock.now_ms();
-  if (g_last_seg_ms != 0 &&
-      kanri::core::elapsed_ms(now, g_last_seg_ms) < kSegRenderIntervalMs) {
+    kanri::display::SegTestStep passo;
+    if (kanri::display::seg_test_step(copia.teste_passo, &passo)) {
+      Serial.printf("[7seg] passo %u/%u: %s\n",
+                    static_cast<unsigned>(copia.teste_passo + 1),
+                    static_cast<unsigned>(kanri::display::kSegTestSteps),
+                    passo.espera);
+      g_seg.render_raw(passo.digits, kanri::display::kSegDigits);
+    }
+    portENTER_CRITICAL(&g_painel_mux);
+    ++g_painel.teste_passo;
+    portEXIT_CRITICAL(&g_painel_mux);
+    if (copia.teste_passo + 1 >= kanri::display::kSegTestSteps) {
+      Serial.println(F("[7seg] autoteste concluido"));
+    }
     return;
   }
-  g_last_seg_ms = now;
 
-  // Fora de operacao normal nao ha medida em que confiar. Tres tracos dizem
-  // "sem leitura" sem mentir; o numero velho pareceria atual.
-  if (!kanri::core::is_operational(g_state)) {
+  // 2) Valor escrito a mao pelo console segura a tela.
+  if (copia.manual) {
+    g_seg.render_raw(copia.manual_digits, kanri::display::kSegDigits);
+    return;
+  }
+
+  // 3) Telemetria. Fora de operacao normal nao ha medida em que confiar.
+  if (!kanri::core::is_operational(copia.estado)) {
+    for (std::size_t i = 0; i < kanri::display::kSegMeasureCount; ++i) {
+      suavizador_da_medida(i)->reset();
+    }
     kanri::display::SegFrame vazio;
-    std::strncpy(vazio.text, kanri::display::kSegNoValue,
-                 sizeof(vazio.text) - 1);
+    std::strncpy(vazio.text, kanri::display::kSegNoValue, sizeof(vazio.text) - 1);
     g_seg.render(vazio);
     return;
   }
 
-  const kanri::display::SegFrame frame =
-      kanri::display::build_seg_frame(g_telemetry, g_medida_idx, now);
+  const std::size_t idx = g_medida_idx;
+  const kanri::core::TelemetryValue& v =
+      copia.telemetria.*(kanri::display::kSegMeasures[idx].field);
 
-  // O piscar do alerta e resolvido aqui: o driver e burro de proposito e
-  // desenha exatamente o que recebe. Ver kanri_display/max7219.h.
-  if (frame.blink && !kanri::display::blink_visible(now)) {
+  // Leitura invalida limpa o historico: sem isso, ao voltar o numero
+  // deslizaria a partir do valor ANTIGO, mostrando por alguns quadros uma
+  // medida que o carro nunca teve.
+  if (!v.valid) {
+    suavizador_da_medida(idx)->reset();
+    kanri::display::SegFrame vazio;
+    std::strncpy(vazio.text, kanri::display::kSegNoValue, sizeof(vazio.text) - 1);
+    g_seg.render(vazio);
+    return;
+  }
+
+  // AQUI mora o fim do "robotico": o rodizio entrega uma medida por segundo,
+  // e nos andamos ate ela a 50 Hz em vez de saltar de uma vez.
+  kanri::core::TelemetrySnapshot suave = copia.telemetria;
+  (suave.*(kanri::display::kSegMeasures[idx].field)).value =
+      suavizador_da_medida(idx)->update(v.value);
+
+  const kanri::display::SegFrame frame =
+      kanri::display::build_seg_frame(suave, idx, millis());
+
+  if (frame.blink && !kanri::display::blink_visible(millis())) {
     g_seg.clear();
     return;
   }
   g_seg.render(frame);
+}
+
+/// A task. Nunca bloqueia por mais que o proprio periodo.
+void tarefa_painel(void*) {
+  for (;;) {
+    painel_ler_potenciometro();
+    painel_ler_botao();
+    painel_aplicar_brilho();
+    painel_desenhar();
+    vTaskDelay(pdMS_TO_TICKS(kPainelPeriodoMs));
+  }
 }
 
 void render_if_due() {
@@ -924,6 +1013,12 @@ void setup() {
   if (!g_seg.begin()) {
     Serial.println(F("[7seg] nao inicializou — seguindo sem o mostrador"));
   }
+
+  // O painel no OUTRO nucleo. O laco do Arduino roda no 1; deixamos o 0 para
+  // a tela, de modo que 10 s de Bluetooth bloqueado nao congelem o mostrador.
+  xTaskCreatePinnedToCore(tarefa_painel, "painel", 4096, nullptr,
+                          /*prioridade=*/1, nullptr, /*nucleo=*/0);
+  Serial.println(F("[painel] task no nucleo 0, 50 Hz"));
 
   (void)g_config_store.begin();
 
@@ -1080,10 +1175,13 @@ void loop() {
   ler_console();
   heartbeat_if_due();
   atualizar_led();
-  ler_botao();
-  ler_potenciometro();
+  // Publica o estado para a task do painel. O laco nao toca no mostrador:
+  // dois nucleos no mesmo SPI dariam corrupcao intermitente.
+  portENTER_CRITICAL(&g_painel_mux);
+  g_painel.telemetria = g_telemetry;
+  g_painel.estado = g_state;
+  portEXIT_CRITICAL(&g_painel_mux);
   render_if_due();
-  render_seg_if_due();
 
   // Cede tempo ao scheduler do FreeRTOS. Sem isso, tarefas de sistema (rede,
   // watchdog interno) ficariam sem CPU. Um loop apertado em firmware

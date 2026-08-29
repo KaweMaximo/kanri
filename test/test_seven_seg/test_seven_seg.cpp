@@ -203,6 +203,25 @@ void test_catalogo_de_medidas_e_coerente(void) {
   }
 }
 
+// O vetor de suavizadores no main.cpp e dimensionado por kSegMeasureMax. Se
+// o catalogo passar do teto, a escrita sairia do vetor — e o compilador nao
+// tem como avisar, porque a contagem real e de tempo de execucao.
+void test_catalogo_cabe_no_teto_de_compilacao(void) {
+  TEST_ASSERT_LESS_OR_EQUAL_UINT32(kanri::display::kSegMeasureMax,
+                                   kanri::display::kSegMeasureCount);
+}
+
+// Toda medida precisa de uma faixa fisica positiva: e dela que sai o limiar
+// de salto da suavizacao. Faixa zero faria tudo virar "mudanca grande", e o
+// painel voltaria a saltar.
+void test_toda_medida_tem_faixa_fisica_utilizavel(void) {
+  for (std::size_t i = 0; i < kanri::display::kSegMeasureCount; ++i) {
+    TEST_ASSERT_GREATER_THAN_FLOAT_MESSAGE(
+        0.0F, kanri::display::kSegMeasures[i].span,
+        kanri::display::kSegMeasures[i].key);
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_usa_a_maior_precisao_que_cabe);
@@ -223,5 +242,7 @@ int main() {
   RUN_TEST(test_motor_quente_pisca);
   RUN_TEST(test_indice_invalido_nao_quebra);
   RUN_TEST(test_catalogo_de_medidas_e_coerente);
+  RUN_TEST(test_catalogo_cabe_no_teto_de_compilacao);
+  RUN_TEST(test_toda_medida_tem_faixa_fisica_utilizavel);
   return UNITY_END();
 }

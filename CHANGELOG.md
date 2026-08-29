@@ -7,6 +7,45 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Corrigido
+- **O painel congelava sempre que o Bluetooth estava tentando conectar.**
+  Sintoma relatado: *"funciona somente conectado"*.
+
+  `BluetoothSerial::connect()` segura o laço por até **10 s**, e cada leitura
+  de PID por até 1 s. Nesse tempo o potenciômetro não era lido, o botão não
+  respondia e o mostrador não redesenhava. Com o carro respondendo o laço gira
+  rápido e tudo parecia bem; sem conexão, o painel morria por 10 s a cada
+  tentativa.
+
+  O painel virou uma **task no núcleo 0** (o laço do Arduino roda no 1). O
+  Bluetooth pode bloquear à vontade que a tela continua viva — num aparelho
+  fixo no carro, o brilho tem de responder com o adaptador fora do ar.
+
+  Regra que mantém isso seguro: **todo acesso ao mostrador acontece na task
+  do painel**. O console não escreve no SPI, deixa um pedido sob trava. Dois
+  núcleos disputando o mesmo barramento dariam corrupção intermitente — do
+  tipo que não se reproduz.
+
+### Adicionado
+- **Suavização dos valores no mostrador.** Relatado como *"pulando bastante,
+  muito robótico"*.
+
+  Não era ruído: o rodízio lê cinco PIDs, então cada medida chega a cada ~1 s
+  e o número ficava parado um segundo e **saltava**. Era a taxa de
+  atualização aparecendo na cara do motorista.
+
+  A correção não foi ler mais rápido — o barramento OBD tem o ritmo que tem —
+  e sim **andar** até o valor novo a 50 Hz, como um ponteiro faz por inércia.
+
+  Com uma ressalva que importa: mudança **grande vai direto**. Suavizar tudo
+  deixaria o painel lento, e pisar no acelerador vendo a rotação chegar um
+  segundo depois é pior do que ver o número pular. O limiar acompanha a faixa
+  física de cada grandeza, porque 100 é ruído em rpm e é enorme em graus.
+
+- **Brilho em rampa.** Girar o potenciômetro pulava degraus inteiros de
+  intensidade; agora caminha um passo do chip por quadro. A 50 Hz, atravessar
+  a escala inteira do MAX7219 leva 0,3 s.
+
 ### Modificado
 - **Potenciômetro passou para 8 níveis e ficou 7,5× mais rápido**, sem
   afrouxar nenhuma proteção.

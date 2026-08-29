@@ -30,12 +30,12 @@ const SegMeasure kSegMeasures[] = {
     // "tEP", e nao "AGU": o G nao tem forma reconhecivel em 7 segmentos e
     // viraria um borrao. Um rotulo ilegivel e pior que nenhum — o motorista
     // leria a grandeza errada. Ha um teste que cobra isto.
-    {"tEP", "coolant_temp", &core::TelemetrySnapshot::coolant_temp_c},
-    {"rPn", "engine_rpm", &core::TelemetrySnapshot::engine_rpm},
-    {"bAt", "battery_v", &core::TelemetrySnapshot::battery_voltage_v},
-    {"UEL", "speed", &core::TelemetrySnapshot::vehicle_speed_kmh},
-    {"tPS", "throttle", &core::TelemetrySnapshot::throttle_pct},
-    {"Ar", "intake_temp", &core::TelemetrySnapshot::intake_temp_c},
+    {"tEP", "coolant_temp", 255.0F, &core::TelemetrySnapshot::coolant_temp_c},
+    {"rPn", "engine_rpm", 8000.0F, &core::TelemetrySnapshot::engine_rpm},
+    {"bAt", "battery_v", 18.0F, &core::TelemetrySnapshot::battery_voltage_v},
+    {"UEL", "speed", 255.0F, &core::TelemetrySnapshot::vehicle_speed_kmh},
+    {"tPS", "throttle", 100.0F, &core::TelemetrySnapshot::throttle_pct},
+    {"Ar", "intake_temp", 255.0F, &core::TelemetrySnapshot::intake_temp_c},
 };
 
 const std::size_t kSegMeasureCount =
