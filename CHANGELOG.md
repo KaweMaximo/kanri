@@ -8,6 +8,31 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Cliente OBD2 completo** (`ObdClient`): sequência AT de inicialização,
+  envio de comando, leitura até o prompt `>` com timeout, e retentativa
+  apenas para falhas passageiras — insistir num `NO DATA` (a ECU não tem o
+  PID) só gastaria banda do barramento.
+- **Decodificação de PIDs** (`kanri_obd/pid_decoder`) com as fórmulas da SAE
+  J1979: rotação, temperaturas, velocidade, borboleta, MAP, MAF, tensão do
+  módulo, avanço de ignição e tempo de motor ligado.
+
+  Com **duas barreiras, não uma**: aplicar a fórmula não basta. Um frame pode
+  passar pelo parser — hexadecimal válido, modo e PID corretos, tamanho certo
+  — e ainda conter um valor impossível, porque ruído elétrico faz exatamente
+  isso. Todo valor decodificado passa por uma faixa física do 4B11: 16.383 rpm
+  é o que a fórmula permite, mas não é uma medida — é ruído, e não vai para a
+  tela.
+- **Simulador de ELM327** para testes (`test/helpers/fake_elm327.h`). Responde
+  como um adaptador de verdade: demora, termina com `>`, diz `NO DATA` para
+  PID que não conhece, ecoa o comando quando configurado, prefixa
+  `SEARCHING...`, e sabe ficar mudo, corromper a resposta ou falhar na escrita.
+
+  Ele adianta o relógio falso a cada consulta à porta — é o que permite
+  exercitar um timeout de 1 segundo em microssegundos, e testar "o adaptador
+  ficou mudo no meio da leitura" sem provocar a falha no hardware.
+- **Ciclo de leitura** no firmware: rodízio de PIDs um por vez, respeitando
+  `poll_interval_ms`. Ler todos de uma vez congelaria o LED e a tela por quase
+  meio segundo.
 - **Varredura Bluetooth real** (`BtSerialTransport`). O ESP32 procura o
   adaptador no ar, lista o que encontrou com nome, MAC e potência de sinal, e
   entrega a lista para a lógica decidir.
@@ -33,6 +58,13 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 - `board_build.partitions = huge_app.csv`: a pilha Bluetooth leva o binário de
   270 KB para 1,1 MB, que não cabe com folga na tabela padrão. Abre-se mão da
   partição de OTA, que não está no roadmap.
+
+### Modificado
+- `contem_sem_caixa()` e `decode()` tinham cada um **duas defesas para o mesmo
+  caso**. A medição de cobertura expôs a redundância: uma das duas nunca era
+  alcançada. Ambas foram simplificadas para um único ponto de decisão — no
+  decodificador, a checagem de PID ficou junto das fórmulas que ela protege,
+  onde não pode divergir delas.
 
 ### Corrigido
 - **A varredura bloqueava o loop por 5 segundos.** `BluetoothSerial::discover()`

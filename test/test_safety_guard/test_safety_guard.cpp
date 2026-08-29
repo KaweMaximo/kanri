@@ -15,6 +15,7 @@
 #include <unity.h>
 
 #include <cstring>
+#include <initializer_list>
 
 #include "kanri_obd/obd_pid.h"
 #include "kanri_obd/safety.h"
@@ -209,6 +210,52 @@ void test_verdict_corrompido_tem_nome_utilizavel(void) {
   TEST_ASSERT_EQUAL_STRING("Unknown", kanri::obd::to_string(corrupted));
 }
 
+// A normalizacao do comando AT tem varios caminhos: separadores diferentes,
+// caixa mista, digitos hexadecimais nos parametros. Cada um e uma chance de
+// deixar passar algo que deveria ser barrado.
+void test_normalizacao_de_comandos_at(void) {
+  // Separadores variados sao removidos.
+  assert_verdict(RequestVerdict::Allowed, at("A T Z"));
+  assert_verdict(RequestVerdict::Allowed, at("AT\tZ"));
+  assert_verdict(RequestVerdict::Allowed, at("ATZ\r\n"));
+  assert_verdict(RequestVerdict::Allowed, at("  ATZ  "));
+
+  // Caixa mista.
+  assert_verdict(RequestVerdict::Allowed, at("AtSp0"));
+  assert_verdict(RequestVerdict::Allowed, at("aTrV"));
+
+  // ATSP aceita 0-9, A-F e o A de automatico.
+  for (const char* c : {"ATSP0", "ATSP5", "ATSP9", "ATSPA", "ATSPC"}) {
+    assert_verdict(RequestVerdict::Allowed, at(c));
+  }
+  // Mas nao letras fora do hexadecimal.
+  for (const char* c : {"ATSPG", "ATSPZ", "ATSP-"}) {
+    assert_verdict(RequestVerdict::ForbiddenAtCommand, at(c));
+  }
+
+  // ATST exige exatamente dois digitos hexadecimais.
+  for (const char* c : {"ATST00", "ATST19", "ATSTAF", "ATSTFF"}) {
+    assert_verdict(RequestVerdict::Allowed, at(c));
+  }
+  for (const char* c : {"ATST0", "ATST000", "ATSTGG", "ATST0G"}) {
+    assert_verdict(RequestVerdict::ForbiddenAtCommand, at(c));
+  }
+}
+
+// Varredura ampla: nenhuma combinacao curta de letras vira comando permitido
+// por acidente. Uma allowlist mal escrita deixaria passar prefixos.
+void test_nenhum_comando_de_tres_letras_passa_por_acidente(void) {
+  char cmd[6] = {'A', 'T', 'X', '\0', '\0', '\0'};
+  int permitidos = 0;
+  for (char c = 'A'; c <= 'Z'; ++c) {
+    cmd[2] = c;
+    cmd[3] = '\0';
+    if (check_at_command(cmd, 3) == RequestVerdict::Allowed) ++permitidos;
+  }
+  // Somente ATZ, ATD e ATI sao comandos de tres letras na allowlist.
+  TEST_ASSERT_EQUAL_INT(3, permitidos);
+}
+
 void test_to_string_nunca_devolve_nulo(void) {
   const RequestVerdict all[] = {
       RequestVerdict::Allowed,       RequestVerdict::ForbiddenMode,
@@ -244,6 +291,8 @@ int main() {
   RUN_TEST(test_comandos_at_malformados);
   RUN_TEST(test_allowlist_exige_correspondencia_exata);
   RUN_TEST(test_atsp_com_deteccao_automatica_e_permitido);
+  RUN_TEST(test_normalizacao_de_comandos_at);
+  RUN_TEST(test_nenhum_comando_de_tres_letras_passa_por_acidente);
   RUN_TEST(test_verdict_corrompido_tem_nome_utilizavel);
   RUN_TEST(test_to_string_nunca_devolve_nulo);
 

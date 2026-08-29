@@ -34,6 +34,8 @@
 #include "kanri_core/state_machine.h"
 #include "kanri_core/telemetry.h"
 #include "kanri_core/version.h"
+#include "kanri_obd/obd_client.h"
+#include "kanri_obd/pid_decoder.h"
 #include "kanri_display/view_model.h"
 
 namespace {
@@ -70,12 +72,17 @@ constexpr bool kLedAtivoBaixo = false;
 // Quanto tempo cada varredura Bluetooth dura.
 constexpr std::uint32_t kScanMs = 5000;
 
+// Quantas leituras seguidas podem falhar antes de considerarmos o link caido.
+// Uma resposta ruim isolada e rotina; cinco seguidas nao sao.
+constexpr std::uint8_t kMaxFalhasSeguidas = 5;
+
 // --- Adaptadores de hardware (as escolhas concretas da v0.1) --------------
 kanri::hal::ArduinoClock g_clock;
 kanri::hal::SerialDisplay g_display;
 kanri::hal::NvsConfigStore g_config_store;
 kanri::hal::BtSerialTransport g_transport("Kanri");
 kanri::hal::GpioLed g_led(kLedPin, kLedAtivoBaixo);
+kanri::obd::ObdClient g_obd(g_transport, g_clock);
 
 // --- Estado da aplicacao ---------------------------------------------------
 //  Objetos globais com tempo de vida estatico, sem `new` em lugar nenhum.
@@ -189,6 +196,74 @@ kanri::core::AppEvent avaliar_varredura() {
                 g_transport.results()[escolha.index].name,
                 g_transport.results()[escolha.index].mac);
   return kanri::core::AppEvent::AdapterFound;
+}
+
+// PIDs consultados em rodizio durante a operacao normal. Um por vez, para
+// que o loop nunca bloqueie por muito tempo — ler os cinco de uma vez
+// congelaria o LED e a tela por quase meio segundo.
+constexpr struct {
+  std::uint8_t mode;
+  std::uint8_t pid;
+  kanri::core::TelemetryValue kanri::core::TelemetrySnapshot::*campo;
+} kRodizio[] = {
+    {0x01, 0x0C, &kanri::core::TelemetrySnapshot::engine_rpm},
+    {0x01, 0x05, &kanri::core::TelemetrySnapshot::coolant_temp_c},
+    {0x01, 0x11, &kanri::core::TelemetrySnapshot::throttle_pct},
+    {0x01, 0x42, &kanri::core::TelemetrySnapshot::battery_voltage_v},
+    {0x01, 0x0D, &kanri::core::TelemetrySnapshot::vehicle_speed_kmh},
+};
+constexpr std::size_t kRodizioLen = sizeof(kRodizio) / sizeof(kRodizio[0]);
+
+std::size_t g_rodizio_idx = 0;
+std::uint32_t g_last_poll_ms = 0;
+std::uint8_t g_falhas_seguidas = 0;
+
+/// Le UM pid do rodizio, respeitando o intervalo configurado.
+///
+/// Uma resposta ruim isolada e rotina no barramento e nao derruba o link. Mas
+/// muitas seguidas significam que a ECU parou de responder — ai sim emitimos
+/// VehicleLinkDown e a maquina de estados degrada. Essa decisao mora aqui, e
+/// nao na maquina de estados, para manter a funcao de transicao pura.
+void ler_um_pid() {
+  const std::uint32_t agora = g_clock.now_ms();
+  if (kanri::core::elapsed_ms(agora, g_last_poll_ms) <
+      g_settings.poll_interval_ms) {
+    return;
+  }
+  g_last_poll_ms = agora;
+
+  const auto& alvo = kRodizio[g_rodizio_idx];
+  g_rodizio_idx = (g_rodizio_idx + 1) % kRodizioLen;
+
+  const auto frame = g_obd.read_pid(alvo.mode, alvo.pid);
+  if (!frame.ok()) {
+    if (++g_falhas_seguidas >= kMaxFalhasSeguidas) {
+      Serial.printf("[obd] %u falhas seguidas — considerando o link caido\n",
+                    static_cast<unsigned>(g_falhas_seguidas));
+      g_falhas_seguidas = 0;
+      dispatch(kanri::core::AppEvent::VehicleLinkDown);
+    }
+    return;
+  }
+  g_falhas_seguidas = 0;
+
+  const auto valor = kanri::obd::decode(frame);
+  if (!valor.ok()) {
+    // O frame chegou intacto, mas o numero e impossivel. Nao vai para a tela.
+    Serial.printf("[obd] PID %02X recusado na decodificacao: %s\n", alvo.pid,
+                  kanri::obd::to_string(valor.status));
+    return;
+  }
+
+  kanri::core::TelemetryValue& destino = g_telemetry.*(alvo.campo);
+  destino.value = valor.value;
+  destino.valid = true;
+  destino.updated_at_ms = agora;
+  ++g_telemetry.frames_ok;
+  g_telemetry.last_ok_ms = agora;
+
+  Serial.printf("[obd] %02X = %.1f %s\n", alvo.pid,
+                static_cast<double>(valor.value), valor.unit);
 }
 
 void render_if_due() {
@@ -310,18 +385,37 @@ void loop() {
       break;
 
     case kanri::core::AppState::InitializingElm:
-      // TODO(v0.2): ObdClient::initialize() (sequencia AT).
-      dispatch(kanri::core::AppEvent::ElmFailed);
+      if (g_obd.initialize()) {
+        Serial.println(F("[elm] adaptador inicializado"));
+        float volts = 0.0F;
+        if (g_obd.read_adapter_voltage(volts)) {
+          Serial.printf("[elm] tensao no conector: %.1f V\n",
+                        static_cast<double>(volts));
+        }
+        dispatch(kanri::core::AppEvent::ElmReady);
+      } else {
+        Serial.println(F("[elm] sequencia AT falhou"));
+        dispatch(kanri::core::AppEvent::ElmFailed);
+      }
       break;
 
-    case kanri::core::AppState::ConnectingVehicle:
-      // TODO(v0.2): primeira leitura de PID para confirmar o barramento.
-      dispatch(kanri::core::AppEvent::VehicleLinkDown);
+    case kanri::core::AppState::ConnectingVehicle: {
+      // Uma leitura de teste confirma que ha ECU do outro lado. Usamos a
+      // rotacao: e o PID que todo carro OBD2 implementa.
+      const auto frame = g_obd.read_pid(0x01, 0x0C);
+      if (frame.ok()) {
+        Serial.println(F("[obd] ECU respondeu — barramento vivo"));
+        dispatch(kanri::core::AppEvent::VehicleLinkUp);
+      } else {
+        Serial.printf("[obd] sem resposta da ECU: %s\n",
+                      kanri::obd::to_string(frame.status));
+        dispatch(kanri::core::AppEvent::VehicleLinkDown);
+      }
       break;
+    }
 
     case kanri::core::AppState::Polling:
-      // TODO(v0.2): ciclo de leitura de PIDs, respeitando
-      //             g_settings.poll_interval_ms.
+      ler_um_pid();
       break;
 
     case kanri::core::AppState::Degraded: {
