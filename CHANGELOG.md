@@ -15,16 +15,18 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
   o mesmo raciocínio do potenciômetro no 36: pinos que não acionam nada são
   perfeitos para sensores, e assim nenhum pino capaz de acionar é desperdiçado.
 
-  **O sensor só escurece.** Ele nunca passa do que o motorista escolheu no
-  potenciômetro: o botão define o brilho de dia, o sensor abaixa à noite — como
-  num painel de carro. O contrário daria um mostrador que ofusca sozinho ao
-  pegar sol, sem ninguém ter pedido.
+  **Sensor e potenciômetro são independentes**: quem mexeu por último vale. Não
+  há fórmula combinando os dois de propósito — girar o botão e não ver efeito
+  porque o sensor limitou seria lido como defeito. Na prática o sensor manda
+  quase sempre, porque a luz muda mais que um botão.
 
-  **E ele é deliberadamente lento**: 60 confirmações contra as 8 do
-  potenciômetro. Um botão só muda quando alguém gira; a luz ambiente muda o
-  tempo todo ao dirigir — árvore, poste, farol de quem vem. Com o filtro do
-  potenciômetro, o painel piscaria sozinho na estrada. Passar debaixo de uma
-  árvore não muda nada; entrar num túnel muda.
+  **Resposta praticamente imediata** (3 confirmações, ~60 ms). O que torna isso
+  aceitável é a **rampa de brilho** que já existia: ela caminha um passo do chip
+  por quadro, então mesmo um degrau instantâneo de nível vira uma transição de
+  ~0,3 s na tela. Decisão rápida, transição suave.
+
+  Uma versão anterior usava 60 confirmações (~1,2 s) para não reagir a cada
+  sombra da estrada. Se dirigir sob árvores incomodar, esse número é o que sobe.
 
   O sentido do divisor (LDR em cima ou embaixo) **inverte a leitura**, e errar
   produz o pior resultado possível: escurece no sol e ofusca no escuro, sem

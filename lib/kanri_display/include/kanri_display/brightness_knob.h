@@ -133,19 +133,17 @@ class BrightnessKnob {
 
 /// Quantas confirmacoes o SENSOR DE LUZ exige.
 ///
-/// A 50 Hz, 60 leituras sao ~1,2 s de luz estavel antes de mexer no brilho.
-/// Passar debaixo de uma arvore nao muda nada; entrar num tunel muda.
-constexpr std::uint8_t kAmbientConfirmations = 60;
-
-/// Combina a preferencia do motorista com a luz ambiente.
+/// TRES, a 50 Hz: 60 ms. Praticamente tempo real, por decisao do Kawe —
+/// "quando tiver luz aumenta, sem luz abaixa".
 ///
-/// O sensor so ESCURECE: nunca passa do que o motorista escolheu no
-/// potenciometro. E como um painel de carro funciona — o botao define o
-/// brilho de dia, e o sensor abaixa a noite.
+/// A versao anterior usava 60 confirmacoes (~1,2 s) para nao reagir a cada
+/// sombra da estrada. O que torna a resposta imediata aceitavel e a RAMPA de
+/// brilho: ela caminha um passo do chip por quadro, entao mesmo um degrau
+/// instantaneo de nivel vira uma transicao de ~0,3 s na tela.
 ///
-/// O contrario (sensor podendo aumentar) daria um painel que ofusca sozinho
-/// ao pegar sol, sem o motorista ter pedido.
-std::uint8_t combine_levels(std::uint8_t knob, std::uint8_t ambient);
+/// Ou seja: a decisao e rapida, a transicao e suave. Se dirigir sob arvores
+/// incomodar, este numero e o que sobe.
+constexpr std::uint8_t kAmbientConfirmations = 3;
 
 /// O nivel que uma leitura sugere, respeitando a histerese.
 ///
