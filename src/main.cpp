@@ -112,6 +112,28 @@ constexpr std::uint8_t kPotPin = 36;
 // rejeicao de pino solto mais forte do que era. Ver brightness_knob.h.
 constexpr std::uint32_t kPotIntervalMs = 20;
 
+// Fotorresistor (LDR) com resistor de 10 kOhm, no GPIO 34.
+//
+// Mesmo motivo do potenciometro no 36: e do ADC1 (o ADC2 nao funciona com o
+// radio ligado) e e INPUT-ONLY. Os input-only nao servem para acionar nada,
+// e por isso sao perfeitos para sensor — que e entrada por natureza. Assim
+// nenhum pino capaz de acionar coisa e desperdicado.
+//
+// Faz o brilho acompanhar a luz do ambiente: claro de dia, fraco a noite. E
+// o que o FuelTech faz, e a razao de existir num painel de carro e simples —
+// o brilho bom de dia CEGA a noite.
+constexpr std::uint8_t kLdrPin = 34;
+
+// Como o divisor foi montado: LDR no lado de cima (3,3 V) ou de baixo (GND)?
+//
+// Isso INVERTE o sentido da leitura, e errar aqui produz o pior resultado
+// possivel: o painel escurece no sol e ofusca no escuro — exatamente ao
+// contrario do que se quer, e sem nada indicar que ha erro.
+//
+// Confira com o comando `luz`: TAPE o sensor com a mao e veja para onde o
+// numero vai. Se ele SOBE no escuro, esta constante precisa virar true.
+constexpr bool kLdrEscuroLeAlto = false;
+
 // De quanto em quanto tempo o mostrador do carro e redesenhado. Mais rapido
 // que o texto porque o piscar do alerta precisa de resolucao.
 constexpr std::uint32_t kSegRenderIntervalMs = 100;
@@ -138,6 +160,10 @@ kanri::hal::SerialDisplay g_display;
 kanri::hal::Max7219Display g_seg(kSegDin, kSegClk, kSegLoad);
 kanri::core::Button g_botao;
 kanri::display::BrightnessKnob g_knob;
+
+// O sensor de luz usa MUITO mais confirmacoes que o potenciometro. Um botao
+// so muda quando alguem gira; a luz ambiente muda o tempo todo ao dirigir.
+kanri::display::BrightnessKnob g_luz(kanri::display::kAmbientConfirmations);
 
 // ---------------------------------------------------------------------------
 //  O painel roda no OUTRO nucleo
@@ -171,6 +197,8 @@ struct PainelCompartilhado {
   std::size_t teste_passo = kanri::display::kSegTestSteps;
   std::uint16_t pot_raw = 0;
   std::uint8_t pot_nivel = 0;
+  std::uint16_t luz_raw = 0;
+  std::uint8_t luz_nivel = 0;
 
   /// Barra de LEDs. Hoje serve para testar a fiacao; e a base do contagiro.
   std::uint8_t barra[kanri::core::kMaxPinList] = {};
@@ -782,6 +810,26 @@ void executar(const kanri::config::ParsedCommand& cmd) {
                     nivel ? "ALTO (3,3 V)" : "BAIXO (0 V)");
       return;
     }
+    case CommandAction::LightStatus: {
+      std::uint16_t raw;
+      std::uint8_t nivel;
+      portENTER_CRITICAL(&g_painel_mux);
+      raw = g_painel.luz_raw;
+      nivel = g_painel.luz_nivel;
+      portEXIT_CRITICAL(&g_painel_mux);
+
+      Serial.printf("[luz] GPIO %u  adc=%u/%u  nivel %u/%u\n",
+                    static_cast<unsigned>(kLdrPin), static_cast<unsigned>(raw),
+                    static_cast<unsigned>(kanri::display::kAdcMax),
+                    static_cast<unsigned>(nivel + 1),
+                    static_cast<unsigned>(kanri::display::kKnobLevels));
+      Serial.printf("      montagem: escuro le %s\n",
+                    kLdrEscuroLeAlto ? "ALTO" : "BAIXO");
+      Serial.println(F("      TAPE o sensor com a mao e rode `luz` de novo."));
+      Serial.println(F("      Se o numero for para o lado errado, a constante"));
+      Serial.println(F("      kLdrEscuroLeAlto no main.cpp precisa inverter."));
+      return;
+    }
     case CommandAction::PotStatus: {
       // Le na hora, sem esperar o intervalo: quem digitou o comando esta
       // com a mao no botao querendo ver o numero mexer.
@@ -925,22 +973,44 @@ kanri::display::ValueSmoother* suavizador_da_medida(std::size_t idx) {
 /// Le o potenciometro. Roda na task do painel, entao NAO para quando o
 /// Bluetooth bloqueia — que era exatamente o defeito.
 void painel_ler_potenciometro() {
-  const std::uint16_t raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+  const std::uint16_t pot_raw = static_cast<std::uint16_t>(analogRead(kPotPin));
+  const std::uint16_t luz_raw = static_cast<std::uint16_t>(analogRead(kLdrPin));
 
-  if (g_knob.update(raw)) {
-    const std::uint8_t pct = g_knob.percent();
+  // O divisor pode ter sido montado nos dois sentidos. Inverter aqui deixa o
+  // resto da logica igual a do potenciometro: mais luz = nivel maior.
+  const std::uint16_t luz_norm =
+      kLdrEscuroLeAlto
+          ? static_cast<std::uint16_t>(kanri::display::kAdcMax - luz_raw)
+          : luz_raw;
+
+  const bool mudou_pot = g_knob.update(pot_raw);
+  const bool mudou_luz = g_luz.update(luz_norm);
+
+  if (mudou_pot || mudou_luz) {
+    // O sensor so ESCURECE: nunca passa do que o motorista escolheu. Ver
+    // combine_levels() em brightness_knob.h.
+    const std::uint8_t nivel =
+        kanri::display::combine_levels(g_knob.level(), g_luz.level());
+    const std::uint8_t pct = kanri::display::knob_level_percent(nivel);
+
     portENTER_CRITICAL(&g_painel_mux);
     g_painel.brilho_alvo_pct = pct;
     portEXIT_CRITICAL(&g_painel_mux);
-    Serial.printf("[pot] nivel %u/%u — brilho %u%% (adc %u)\n",
+
+    Serial.printf("[brilho] botao %u/%u + luz %u/%u -> nivel %u (%u%%)\n",
                   static_cast<unsigned>(g_knob.level() + 1),
                   static_cast<unsigned>(kanri::display::kKnobLevels),
-                  static_cast<unsigned>(pct), static_cast<unsigned>(raw));
+                  static_cast<unsigned>(g_luz.level() + 1),
+                  static_cast<unsigned>(kanri::display::kKnobLevels),
+                  static_cast<unsigned>(nivel + 1),
+                  static_cast<unsigned>(pct));
   }
 
   portENTER_CRITICAL(&g_painel_mux);
-  g_painel.pot_raw = raw;
+  g_painel.pot_raw = pot_raw;
   g_painel.pot_nivel = g_knob.level();
+  g_painel.luz_raw = luz_raw;
+  g_painel.luz_nivel = g_luz.level();
   portEXIT_CRITICAL(&g_painel_mux);
 }
 

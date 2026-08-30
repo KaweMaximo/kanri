@@ -380,7 +380,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SetTimeout, CommandAction::SetBrightness,
       CommandAction::SetUnits, CommandAction::ReadDtc,
       CommandAction::SegTest, CommandAction::SegShow,
-      CommandAction::SegAuto, CommandAction::PotStatus,
+      CommandAction::SegAuto, CommandAction::PotStatus, CommandAction::LightStatus,
       CommandAction::GpioWrite, CommandAction::LedBar,
       CommandAction::LedBlink, CommandAction::DigitWrite,
   };

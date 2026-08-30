@@ -8,6 +8,30 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **Sensor de luz (fotorresistor) no GPIO 34**, com auto-dimming do mostrador.
+  LDR + resistor de 10 kΩ, comando `luz` para conferir.
+
+  O pino é `ADC1` (o `ADC2` não funciona com o rádio ligado) e **input-only** —
+  o mesmo raciocínio do potenciômetro no 36: pinos que não acionam nada são
+  perfeitos para sensores, e assim nenhum pino capaz de acionar é desperdiçado.
+
+  **O sensor só escurece.** Ele nunca passa do que o motorista escolheu no
+  potenciômetro: o botão define o brilho de dia, o sensor abaixa à noite — como
+  num painel de carro. O contrário daria um mostrador que ofusca sozinho ao
+  pegar sol, sem ninguém ter pedido.
+
+  **E ele é deliberadamente lento**: 60 confirmações contra as 8 do
+  potenciômetro. Um botão só muda quando alguém gira; a luz ambiente muda o
+  tempo todo ao dirigir — árvore, poste, farol de quem vem. Com o filtro do
+  potenciômetro, o painel piscaria sozinho na estrada. Passar debaixo de uma
+  árvore não muda nada; entrar num túnel muda.
+
+  O sentido do divisor (LDR em cima ou embaixo) **inverte a leitura**, e errar
+  produz o pior resultado possível: escurece no sol e ofusca no escuro, sem
+  nada indicar erro. O comando `luz` existe para descobrir isso tapando o
+  sensor com a mão.
+
+### Adicionado
 - **`PINOUT-ESP32.md` e `PINOUT-MAX7219.md` na raiz**, como referência de
   bancada — feitas para consultar com o ferro de solda na mão, não para ler de
   ponta a ponta.

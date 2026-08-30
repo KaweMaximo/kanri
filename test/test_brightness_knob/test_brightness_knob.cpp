@@ -270,8 +270,72 @@ void test_so_avisa_na_mudanca(void) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  Sensor de luz combinado com o potenciometro
+// ---------------------------------------------------------------------------
+
+// O SENSOR SO ESCURECE. Deixa-lo aumentar daria um painel que ofusca sozinho
+// ao pegar sol, sem o motorista ter pedido.
+void test_sensor_nunca_passa_do_que_o_motorista_escolheu(void) {
+  using kanri::display::combine_levels;
+  for (std::uint8_t botao = 0; botao < kKnobLevels; ++botao) {
+    for (std::uint8_t luz = 0; luz < kKnobLevels; ++luz) {
+      TEST_ASSERT_LESS_OR_EQUAL_UINT8(botao, combine_levels(botao, luz));
+    }
+  }
+}
+
+// De dia (luz no maximo) o painel obedece so ao botao.
+void test_com_luz_de_sobra_vale_o_botao(void) {
+  using kanri::display::combine_levels;
+  for (std::uint8_t botao = 0; botao < kKnobLevels; ++botao) {
+    TEST_ASSERT_EQUAL_UINT8(botao, combine_levels(botao, kKnobLevels - 1));
+  }
+}
+
+// No escuro total o painel vai para o minimo, doa a quem doer no botao.
+void test_no_escuro_o_painel_vai_ao_minimo(void) {
+  using kanri::display::combine_levels;
+  for (std::uint8_t botao = 0; botao < kKnobLevels; ++botao) {
+    TEST_ASSERT_EQUAL_UINT8(0, combine_levels(botao, 0));
+  }
+}
+
+void test_combinacao_nao_estoura_com_entrada_absurda(void) {
+  using kanri::display::combine_levels;
+  TEST_ASSERT_LESS_THAN_UINT8(kKnobLevels, combine_levels(200, 200));
+  TEST_ASSERT_LESS_THAN_UINT8(kKnobLevels, combine_levels(0, 200));
+}
+
+// O SENSOR PRECISA SER LENTO. Dirigindo, a luz muda o tempo todo — arvore,
+// poste, farol de quem vem. Com o filtro do potenciometro, o painel piscaria
+// sozinho na estrada; por isso o sensor exige muito mais confirmacoes.
+void test_sensor_e_bem_mais_lento_que_o_botao(void) {
+  TEST_ASSERT_GREATER_THAN_UINT8(kKnobConfirmations,
+                                 kanri::display::kAmbientConfirmations);
+
+  BrightnessKnob sensor(kanri::display::kAmbientConfirmations);
+  assentar(sensor, 2000);
+  const std::uint8_t antes = sensor.level();
+
+  // Uma sombra rapida: menos leituras do que o sensor exige.
+  for (int i = 0; i < kanri::display::kAmbientConfirmations - 1; ++i) {
+    TEST_ASSERT_FALSE_MESSAGE(sensor.update(0), "reagiu a uma sombra");
+  }
+  TEST_ASSERT_EQUAL_UINT8(antes, sensor.level());
+
+  // Escuro que PERSISTE: aí sim.
+  TEST_ASSERT_TRUE(sensor.update(0));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
+
+  RUN_TEST(test_sensor_nunca_passa_do_que_o_motorista_escolheu);
+  RUN_TEST(test_com_luz_de_sobra_vale_o_botao);
+  RUN_TEST(test_no_escuro_o_painel_vai_ao_minimo);
+  RUN_TEST(test_combinacao_nao_estoura_com_entrada_absurda);
+  RUN_TEST(test_sensor_e_bem_mais_lento_que_o_botao);
 
   RUN_TEST(test_niveis_sobem_do_mais_fraco_ao_mais_forte);
   RUN_TEST(test_nivel_mais_fraco_ainda_acende);
