@@ -21,12 +21,6 @@ constexpr std::uint8_t kPercentuais[kKnobLevels] = {2,  5,  10, 18,
 
 }  // namespace
 
-std::uint8_t combine_levels(std::uint8_t knob, std::uint8_t ambient) {
-  if (knob >= kKnobLevels) knob = kKnobLevels - 1;
-  if (ambient >= kKnobLevels) ambient = kKnobLevels - 1;
-  return (ambient < knob) ? ambient : knob;
-}
-
 std::uint8_t knob_level_percent(std::uint8_t level) {
   if (level >= kKnobLevels) level = kKnobLevels - 1;
   return kPercentuais[level];

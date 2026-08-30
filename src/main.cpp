@@ -983,28 +983,41 @@ void painel_ler_potenciometro() {
           ? static_cast<std::uint16_t>(kanri::display::kAdcMax - luz_raw)
           : luz_raw;
 
-  const bool mudou_pot = g_knob.update(pot_raw);
-  const bool mudou_luz = g_luz.update(luz_norm);
+  // Os dois comandam o brilho de forma INDEPENDENTE: quem mexeu por ultimo
+  // vale. Na pratica o sensor manda quase sempre, porque a luz muda mais que
+  // um botao — e e isso que se quer aqui: mais luz, mais brilho.
+  //
+  // Nao ha combinacao entre eles de proposito. Uma formula juntando os dois
+  // ficaria imprevisivel: girar o botao e nao ver efeito porque o sensor
+  // limitou seria lido como defeito.
+  std::uint8_t nivel;
+  const char* origem;
 
-  if (mudou_pot || mudou_luz) {
-    // O sensor so ESCURECE: nunca passa do que o motorista escolheu. Ver
-    // combine_levels() em brightness_knob.h.
-    const std::uint8_t nivel =
-        kanri::display::combine_levels(g_knob.level(), g_luz.level());
-    const std::uint8_t pct = kanri::display::knob_level_percent(nivel);
-
+  if (g_luz.update(luz_norm)) {
+    nivel = g_luz.level();
+    origem = "luz";
+  } else if (g_knob.update(pot_raw)) {
+    nivel = g_knob.level();
+    origem = "botao";
+  } else {
     portENTER_CRITICAL(&g_painel_mux);
-    g_painel.brilho_alvo_pct = pct;
+    g_painel.pot_raw = pot_raw;
+    g_painel.pot_nivel = g_knob.level();
+    g_painel.luz_raw = luz_raw;
+    g_painel.luz_nivel = g_luz.level();
     portEXIT_CRITICAL(&g_painel_mux);
-
-    Serial.printf("[brilho] botao %u/%u + luz %u/%u -> nivel %u (%u%%)\n",
-                  static_cast<unsigned>(g_knob.level() + 1),
-                  static_cast<unsigned>(kanri::display::kKnobLevels),
-                  static_cast<unsigned>(g_luz.level() + 1),
-                  static_cast<unsigned>(kanri::display::kKnobLevels),
-                  static_cast<unsigned>(nivel + 1),
-                  static_cast<unsigned>(pct));
+    return;
   }
+
+  const std::uint8_t pct = kanri::display::knob_level_percent(nivel);
+  portENTER_CRITICAL(&g_painel_mux);
+  g_painel.brilho_alvo_pct = pct;
+  portEXIT_CRITICAL(&g_painel_mux);
+
+  Serial.printf("[brilho] %s -> nivel %u/%u (%u%%)  adc luz=%u\n", origem,
+                static_cast<unsigned>(nivel + 1),
+                static_cast<unsigned>(kanri::display::kKnobLevels),
+                static_cast<unsigned>(pct), static_cast<unsigned>(luz_raw));
 
   portENTER_CRITICAL(&g_painel_mux);
   g_painel.pot_raw = pot_raw;
