@@ -94,6 +94,9 @@ constexpr Entrada kTabela[] = {
     // Leitura crua do ADC: e o unico jeito de conferir a fiacao do
     // potenciometro, ja que um pino solto tambem "le" alguma coisa.
     {"pot",        CommandAction::PotStatus,     false, false, false},
+    // Leitura crua do fotorresistor. E o unico jeito de descobrir o SENTIDO
+    // do divisor: tapar o sensor e ver para onde o numero vai.
+    {"luz",        CommandAction::LightStatus,   false, false, false},
     // Acionar um pino livre da bancada, sem gravar firmware a cada teste.
     {"gpio",       CommandAction::GpioWrite,     true,  false, true},
     // Barra de LEDs: hoje serve para testar a fiacao, e e a base do
@@ -308,6 +311,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::SegShow:
     case CommandAction::SegAuto:
     case CommandAction::PotStatus:
+    case CommandAction::LightStatus:
     case CommandAction::GpioWrite:
     case CommandAction::LedBar:
     case CommandAction::LedBlink:
@@ -340,6 +344,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::SegShow:       return "SegShow";
     case CommandAction::SegAuto:       return "SegAuto";
     case CommandAction::PotStatus:     return "PotStatus";
+    case CommandAction::LightStatus:   return "LightStatus";
     case CommandAction::GpioWrite:     return "GpioWrite";
     case CommandAction::LedBar:        return "LedBar";
     case CommandAction::LedBlink:      return "LedBlink";
@@ -386,6 +391,7 @@ const char* const* help_lines() {
       "  seg <texto>        escreve e SEGURA a tela (ex.: seg 13.8, seg 8--)",
       "  auto               devolve a tela para a telemetria",
       "  pot                leitura crua do potenciometro de brilho",
+      "  luz                leitura crua do sensor de luz (LDR)",
       "  gpio <pino> <0|1>  aciona um pino livre (recusa os ocupados)",
       "barra de LEDs (base do contagiro):",
       "  leds 22,21,19      define a barra; sem argumento, mostra a atual",

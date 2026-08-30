@@ -23,6 +23,7 @@ Referência de bancada do Kanri. Placa confirmada pela serigrafia:
 | **17** | Botão (troca a medida) — `INPUT_PULLUP` | cima (`TX2`) |
 | **18** | `CLK` do MAX7219 | cima |
 | **23** | `DIN` do MAX7219 | cima |
+| **34** | Fotorresistor / sensor de luz (`ADC1`) | baixo (`D34`) |
 | **36** | Potenciômetro de brilho (`ADC1`) | baixo (`VP`) |
 
 ### Livres
@@ -40,7 +41,7 @@ Doze pinos de saída plena. Testar com `gpio 22 1` / `gpio 22 0`.
 | Pino | GPIO | Por quê |
 |---|---|---|
 | — | **20, 24, 28, 29, 30, 31** | **Não existem.** São buracos na numeração do ESP32 |
-| `D34`, `D35` | 34, 35 | ***Input-only*** — não têm driver de saída |
+| `D35` | 35 | ***Input-only*** — não tem driver de saída |
 | `VP`, `VN` | 36, 39 | ***Input-only***, mesmo motivo |
 | `RX0`, `TX0` | 3, 1 | Console USB — derruba o painel Kanri e a gravação |
 | — | 6 – 11 | Flash SPI — acionar **trava o chip na hora** |
@@ -81,7 +82,11 @@ conectasse** — é o tipo de defeito que consome uma tarde inteira.
 
 Repare na ironia útil: `34`, `35`, `36` e `39` são *input-only* e por isso
 inúteis para acionar coisa — mas são **perfeitos para sensores**, que são
-entrada por natureza. Foi por aí que o potenciômetro foi para o `36`.
+entrada por natureza.
+
+Foi por aí que os dois sensores do Kanri escolheram seus pinos: o
+potenciômetro no **36** e o fotorresistor no **34**. Nenhum pino capaz de
+acionar coisa foi desperdiçado.
 
 ---
 

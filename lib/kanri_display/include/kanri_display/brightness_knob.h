@@ -93,6 +93,15 @@ std::uint8_t knob_level_percent(std::uint8_t level);
 /// O botao giratorio, com filtro de ruido.
 class BrightnessKnob {
  public:
+  /// @param confirmations  quantas leituras seguidas precisam concordar.
+  ///        O potenciometro usa o padrao; o SENSOR DE LUZ usa bem mais, e o
+  ///        motivo e fisico: um botao so muda quando alguem gira, mas a luz
+  ///        ambiente muda o tempo todo ao dirigir — arvore, poste, tunel,
+  ///        farol de quem vem. Reagir rapido a isso daria um painel piscando
+  ///        sozinho na estrada, que e pior do que brilho fixo.
+  explicit BrightnessKnob(std::uint8_t confirmations = kKnobConfirmations)
+      : confirmacoes_alvo_(confirmations > 0 ? confirmations : 1) {}
+
   /// Processa uma leitura do ADC.
   ///
   /// @param raw  leitura crua (0..kAdcMax); valores acima sao limitados.
@@ -112,6 +121,7 @@ class BrightnessKnob {
   std::uint8_t pending_level() const { return candidato_; }
 
  private:
+  std::uint8_t confirmacoes_alvo_ = kKnobConfirmations;
   std::uint8_t nivel_ = kKnobDefaultLevel;
   std::uint8_t candidato_ = kKnobDefaultLevel;
   std::uint8_t confirmacoes_ = 0;
@@ -120,6 +130,22 @@ class BrightnessKnob {
   /// aleatorio, que avanca pouco por vez e chega longe.
   std::uint16_t ancora_ = 0;
 };
+
+/// Quantas confirmacoes o SENSOR DE LUZ exige.
+///
+/// A 50 Hz, 60 leituras sao ~1,2 s de luz estavel antes de mexer no brilho.
+/// Passar debaixo de uma arvore nao muda nada; entrar num tunel muda.
+constexpr std::uint8_t kAmbientConfirmations = 60;
+
+/// Combina a preferencia do motorista com a luz ambiente.
+///
+/// O sensor so ESCURECE: nunca passa do que o motorista escolheu no
+/// potenciometro. E como um painel de carro funciona — o botao define o
+/// brilho de dia, e o sensor abaixa a noite.
+///
+/// O contrario (sensor podendo aumentar) daria um painel que ofusca sozinho
+/// ao pegar sol, sem o motorista ter pedido.
+std::uint8_t combine_levels(std::uint8_t knob, std::uint8_t ambient);
 
 /// O nivel que uma leitura sugere, respeitando a histerese.
 ///
