@@ -433,6 +433,89 @@ void test_mapeamento_nunca_sai_da_faixa_dos_digitos(void) {
 }
 
 // ---------------------------------------------------------------------------
+//  Barra de LEDs num digito sobrando
+// ---------------------------------------------------------------------------
+
+// Os tres primeiros sao do mostrador. Roubar um apagaria uma casa do painel,
+// e o sintoma — "o display perdeu um digito" — ninguem associaria a barra.
+void test_digitos_do_mostrador_sao_recusados(void) {
+  for (std::uint8_t d = 1; d <= kSegDigits; ++d) {
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(kanri::display::SpareDigitVerdict::UsedByDisplay),
+        static_cast<int>(kanri::display::check_spare_digit(d)));
+  }
+}
+
+void test_digitos_sobrando_sao_aceitos(void) {
+  for (std::uint8_t d = kSegDigits + 1; d <= kanri::display::kMax7219Digits; ++d) {
+    TEST_ASSERT_EQUAL_INT_MESSAGE(
+        static_cast<int>(kanri::display::SpareDigitVerdict::Ok),
+        static_cast<int>(kanri::display::check_spare_digit(d)), "deveria caber");
+  }
+}
+
+void test_digito_fora_do_chip_e_recusado(void) {
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(kanri::display::SpareDigitVerdict::OutOfRange),
+      static_cast<int>(kanri::display::check_spare_digit(0)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(kanri::display::SpareDigitVerdict::OutOfRange),
+      static_cast<int>(kanri::display::check_spare_digit(9)));
+}
+
+// Conta de 1 porque quem esta na bancada diz "o quarto digito". O quarto e o
+// registrador Digit3 — traduzir isso na cabeca e onde nasce o erro de um.
+void test_quarto_digito_e_o_registrador_digit3(void) {
+  TEST_ASSERT_EQUAL_HEX8(static_cast<std::uint8_t>(Max7219Reg::Digit3),
+                         kanri::display::spare_digit_register(4));
+  TEST_ASSERT_EQUAL_HEX8(static_cast<std::uint8_t>(Max7219Reg::Digit7),
+                         kanri::display::spare_digit_register(8));
+}
+
+// O CASO QUE NAO PODE ESCAPAR: o chip so varre ate o ScanLimit. Ligar LEDs no
+// digito 4 sem subir o limite resulta em nada — sem erro e sem pista.
+void test_scan_limit_sobe_para_alcancar_a_barra(void) {
+  TEST_ASSERT_EQUAL_UINT8(3, kanri::display::scan_limit_for_digit(4));
+  TEST_ASSERT_EQUAL_UINT8(7, kanri::display::scan_limit_for_digit(8));
+}
+
+// Sem barra, ou com barra invalida, o limite NAO pode encolher abaixo do que
+// o mostrador precisa — apagaria um digito do painel.
+void test_scan_limit_nunca_encolhe_abaixo_do_mostrador(void) {
+  const std::uint8_t minimo = static_cast<std::uint8_t>(kSegDigits - 1);
+  TEST_ASSERT_EQUAL_UINT8(minimo, kanri::display::scan_limit_for_digit(0));
+  TEST_ASSERT_EQUAL_UINT8(minimo, kanri::display::scan_limit_for_digit(99));
+  for (std::uint8_t d = 1; d <= kSegDigits; ++d) {
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT8(minimo,
+                                       kanri::display::scan_limit_for_digit(d));
+  }
+}
+
+void test_todo_veredito_de_digito_tem_explicacao(void) {
+  const kanri::display::SpareDigitVerdict todos[] = {
+      kanri::display::SpareDigitVerdict::Ok,
+      kanri::display::SpareDigitVerdict::UsedByDisplay,
+      kanri::display::SpareDigitVerdict::OutOfRange};
+  for (const auto v : todos) {
+    TEST_ASSERT_NOT_NULL(kanri::display::to_string(v));
+    TEST_ASSERT_TRUE(std::strlen(kanri::display::to_string(v)) > 0);
+  }
+  TEST_ASSERT_NOT_NULL(kanri::display::to_string(
+      static_cast<kanri::display::SpareDigitVerdict>(99)));
+}
+
+// A barra nunca pode cair num registrador do mostrador, em nenhum caso.
+void test_barra_nunca_colide_com_o_mostrador(void) {
+  for (std::uint8_t d = kSegDigits + 1; d <= kanri::display::kMax7219Digits; ++d) {
+    const std::uint8_t reg = kanri::display::spare_digit_register(d);
+    for (std::size_t i = 0; i < kSegDigits; ++i) {
+      TEST_ASSERT_NOT_EQUAL_MESSAGE(kanri::display::digit_register(i), reg,
+                                    "barra em cima de um digito do mostrador");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 //  Autoteste
 // ---------------------------------------------------------------------------
 
@@ -571,6 +654,15 @@ int main(int, char**) {
   RUN_TEST(test_posicao_zero_e_o_digito_da_esquerda);
   RUN_TEST(test_cada_posicao_vai_para_um_registrador_diferente);
   RUN_TEST(test_mapeamento_nunca_sai_da_faixa_dos_digitos);
+
+  RUN_TEST(test_digitos_do_mostrador_sao_recusados);
+  RUN_TEST(test_digitos_sobrando_sao_aceitos);
+  RUN_TEST(test_digito_fora_do_chip_e_recusado);
+  RUN_TEST(test_quarto_digito_e_o_registrador_digit3);
+  RUN_TEST(test_scan_limit_sobe_para_alcancar_a_barra);
+  RUN_TEST(test_scan_limit_nunca_encolhe_abaixo_do_mostrador);
+  RUN_TEST(test_todo_veredito_de_digito_tem_explicacao);
+  RUN_TEST(test_barra_nunca_colide_com_o_mostrador);
 
   RUN_TEST(test_autoteste_recusa_indice_invalido);
   RUN_TEST(test_autoteste_comeca_com_tudo_aceso);

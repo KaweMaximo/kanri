@@ -153,6 +153,48 @@ std::uint8_t intensity_from_percent(std::uint8_t percent);
 /// true quando o Digit0 do chip aciona o digito da ESQUERDA.
 constexpr bool kDigit0IsLeftmost = true;
 
+// ---------------------------------------------------------------------------
+//  Digitos sobrando do MAX7219
+// ---------------------------------------------------------------------------
+//  O MAX7219 tem OITO saidas de digito e o mostrador usa tres. As outras
+//  cinco estao livres, e cada uma comanda oito LEDs — as proprias linhas de
+//  segmento. Sao 40 posicoes de LED sem gastar um GPIO do ESP32, e sem
+//  resistor nenhum, porque o ISET ja limita a corrente de todos.
+//
+//  ⚠️ O DETALHE QUE MORDE: o chip so varre ate o ScanLimit. Ligar LEDs no
+//  digito 4 e NAO subir o ScanLimit resulta em... nada. O chip nunca aciona
+//  aquela linha. Sem erro, sem pista — o mesmo tipo de falha silenciosa do
+//  GPIO 28.
+//
+//  ⚠️ E O PRECO: o ScanLimit divide o ciclo entre os digitos varridos. Passar
+//  de 3 para 4 faz cada um receber 1/4 em vez de 1/3 — o mostrador inteiro
+//  fica ~25% mais fraco. Nao e defeito, e multiplexacao; da para compensar no
+//  registrador de intensidade ou baixando o ISET.
+
+/// Quantos digitos o MAX7219 tem ao todo.
+constexpr std::uint8_t kMax7219Digits = 8;
+
+/// Por que um digito nao pode receber LEDs externos.
+enum class SpareDigitVerdict : std::uint8_t {
+  Ok = 0,
+  UsedByDisplay,  ///< E um dos digitos do mostrador.
+  OutOfRange,     ///< O chip so tem 8 digitos.
+};
+
+/// A posicao `human` (contando de 1, como uma pessoa conta) serve de barra?
+///
+/// Conta de 1 de proposito: quem esta na bancada diz "o quarto digito", e
+/// traduzir para indice na cabeca e onde nasce o erro de um.
+SpareDigitVerdict check_spare_digit(std::uint8_t human);
+
+const char* to_string(SpareDigitVerdict verdict);
+
+/// Registrador do chip para a posicao `human` (1..8).
+std::uint8_t spare_digit_register(std::uint8_t human);
+
+/// Quantos digitos o chip precisa varrer para incluir a barra em `human`.
+std::uint8_t scan_limit_for_digit(std::uint8_t human);
+
 /// Traduz a posicao de LEITURA (0 = esquerda) no registrador do chip.
 ///
 /// Mora aqui, e nao no HAL, porque estava duplicada em render() e

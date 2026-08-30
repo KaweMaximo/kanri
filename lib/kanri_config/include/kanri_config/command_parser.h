@@ -66,6 +66,7 @@ enum class CommandAction : std::uint8_t {
   GpioWrite,      ///< Aciona um GPIO livre: `gpio <pino> <0|1>`.
   LedBar,         ///< Define a barra de LEDs: `leds 22,21,19`.
   LedBlink,       ///< Liga/desliga o piscar da barra.
+  DigitWrite,     ///< Aciona um digito sobrando do MAX7219: `dig 4 255`.
 };
 
 /// Por que a linha nao pode ser executada.

@@ -91,6 +91,20 @@ void Max7219Display::set_intensity(std::uint8_t intensity) {
             intensity});
 }
 
+void Max7219Display::set_digit_raw(std::uint8_t reg, std::uint8_t bits) {
+  if (!pronto_) return;
+  escrever({reg, bits});
+}
+
+void Max7219Display::set_scan_limit(std::uint8_t last_index) {
+  if (!pronto_) return;
+  if (last_index > kanri::display::kMax7219Digits - 1) {
+    last_index = kanri::display::kMax7219Digits - 1;
+  }
+  escrever({static_cast<std::uint8_t>(kanri::display::Max7219Reg::ScanLimit),
+            last_index});
+}
+
 void Max7219Display::set_brightness(std::uint8_t percent) {
   if (!pronto_) return;
   escrever({static_cast<std::uint8_t>(kanri::display::Max7219Reg::Intensity),

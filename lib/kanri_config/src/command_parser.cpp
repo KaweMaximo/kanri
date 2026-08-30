@@ -100,6 +100,10 @@ constexpr Entrada kTabela[] = {
     // contagiro. Sem argumento, mostra a barra atual.
     {"leds",       CommandAction::LedBar,        false, false, false},
     {"piscar",     CommandAction::LedBlink,      false, false, false},
+    // Aciona um digito sobrando do MAX7219 direto. Ferramenta de bancada:
+    // serve para conferir se os LEDs de um digito livre acendem, ANTES de
+    // decidir se a barra vai morar ali.
+    {"dig",        CommandAction::DigitWrite,    true,  false, true},
 };
 
 constexpr std::size_t kTabelaLen = sizeof(kTabela) / sizeof(kTabela[0]);
@@ -307,6 +311,7 @@ bool apply_command(const ParsedCommand& command, KanriSettings& settings) {
     case CommandAction::GpioWrite:
     case CommandAction::LedBar:
     case CommandAction::LedBlink:
+    case CommandAction::DigitWrite:
     case CommandAction::ReadDtc:
       return false;
   }
@@ -338,6 +343,7 @@ const char* to_string(CommandAction action) {
     case CommandAction::GpioWrite:     return "GpioWrite";
     case CommandAction::LedBar:        return "LedBar";
     case CommandAction::LedBlink:      return "LedBlink";
+    case CommandAction::DigitWrite:    return "DigitWrite";
   }
   return "Unknown";
 }
@@ -384,6 +390,7 @@ const char* const* help_lines() {
       "barra de LEDs (base do contagiro):",
       "  leds 22,21,19      define a barra; sem argumento, mostra a atual",
       "  piscar             liga/desliga o piscar da barra",
+      "  dig <digito> <0-255>  aciona um digito sobrando do MAX7219",
       nullptr,
   };
   return kAjuda;
