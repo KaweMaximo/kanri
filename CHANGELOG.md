@@ -8,6 +8,20 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 ## [Não lançado]
 
 ### Adicionado
+- **`PINOUT-ESP32.md` e `PINOUT-MAX7219.md` na raiz**, como referência de
+  bancada — feitas para consultar com o ferro de solda na mão, não para ler de
+  ponta a ponta.
+
+  O `PINOUT-MAX7219.md` traz o mapa de bits dos segmentos, que é o que mais se
+  consulta e o que mais engana: a ordem **não** é alfabética a partir do bit 0,
+  ela começa no `DP` no bit mais alto e desce `A B C D E F G`. Ligar um LED no
+  segmento `F` e testar com `dig 4 1` não acende nada — o bit 0 é o `G`.
+
+  O `PINOUT-ESP32.md` separa o que **não pode** ser usado por motivo físico do
+  que é só preferência, com a razão de cada um, e registra a regra do `ADC1`
+  vs `ADC2` que decidiu o pino do potenciômetro.
+
+### Adicionado
 - **Comando `dig <dígito> <0-255>`** para acionar direto um dígito sobrando do
   MAX7219. Ferramenta de bancada, para conferir se os LEDs acendem **antes** de
   decidir onde a barra do contagiro vai morar.
