@@ -46,6 +46,18 @@ class Max7219Display : public kanri::display::ISevenSeg {
   /// converter de percentual a cada passo daria degraus repetidos, porque
   /// varios percentuais caem na mesma intensidade.
   void set_intensity(std::uint8_t intensity);
+
+  /// Escreve o registrador de UM digito, cru.
+  ///
+  /// Existe para a barra de LEDs: os digitos que o mostrador nao usa comandam
+  /// oito LEDs cada, pelas proprias linhas de segmento.
+  void set_digit_raw(std::uint8_t reg, std::uint8_t bits);
+
+  /// Quantos digitos o chip varre (o registrador guarda o INDICE do ultimo).
+  ///
+  /// ⚠️ Mexe no brilho: o ciclo se divide entre os digitos varridos. Passar
+  /// de 3 para 4 deixa tudo ~25% mais fraco.
+  void set_scan_limit(std::uint8_t last_index);
   void clear() override;
 
  private:

@@ -7,6 +7,24 @@ Versionamento segue [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não lançado]
 
+### Adicionado
+- **Comando `dig <dígito> <0-255>`** para acionar direto um dígito sobrando do
+  MAX7219. Ferramenta de bancada, para conferir se os LEDs acendem **antes** de
+  decidir onde a barra do contagiro vai morar.
+
+  O chip tem 8 dígitos e o mostrador usa 3 — as outras 5 saídas estão livres, e
+  cada uma comanda 8 LEDs pelas próprias linhas de segmento.
+
+  **O comando sobe o `ScanLimit` sozinho**, e isso é o ponto: o MAX7219 só
+  varre até esse limite. Ligar LEDs no dígito 4 sem subir o limite resulta em
+  nada — sem erro e sem pista, o mesmo tipo de falha silenciosa do GPIO 28.
+
+  E avisa do preço: o ciclo passa a se dividir entre mais dígitos, então o
+  mostrador fica mais fraco. É multiplexação, não defeito.
+
+  Recusa os dígitos do mostrador, apontando o comando certo (`seg`). Escrever
+  neles daria briga com o redesenho da telemetria a 50 Hz.
+
 ### Corrigido
 - **Gravar sem o ESP32 plugado dava um erro que apontava para o lugar errado.**
   Sem porta, o PlatformIO *adivinhava* `/dev/ttyS0` — a serial legada da

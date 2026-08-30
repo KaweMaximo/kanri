@@ -190,6 +190,39 @@ constexpr const char* kEsperaDigito[] = {
 
 }  // namespace
 
+SpareDigitVerdict check_spare_digit(std::uint8_t human) {
+  if (human == 0 || human > kMax7219Digits) return SpareDigitVerdict::OutOfRange;
+  // Os primeiros kSegDigits sao do mostrador. Roubar um deles apagaria um
+  // digito do painel — e o sintoma seria "o display perdeu uma casa", que
+  // ninguem associaria a barra de LEDs.
+  if (human <= kSegDigits) return SpareDigitVerdict::UsedByDisplay;
+  return SpareDigitVerdict::Ok;
+}
+
+const char* to_string(SpareDigitVerdict verdict) {
+  switch (verdict) {
+    case SpareDigitVerdict::Ok:            return "ok";
+    case SpareDigitVerdict::UsedByDisplay: return "este digito e do mostrador";
+    case SpareDigitVerdict::OutOfRange:    return "o MAX7219 so tem 8 digitos";
+  }
+  return "desconhecido";
+}
+
+std::uint8_t spare_digit_register(std::uint8_t human) {
+  if (human == 0) human = 1;
+  if (human > kMax7219Digits) human = kMax7219Digits;
+  return static_cast<std::uint8_t>(
+      static_cast<std::uint8_t>(Max7219Reg::Digit0) + (human - 1));
+}
+
+std::uint8_t scan_limit_for_digit(std::uint8_t human) {
+  // ScanLimit e o INDICE do ultimo digito varrido, nao a quantidade.
+  const std::uint8_t sem_barra = static_cast<std::uint8_t>(kSegDigits - 1);
+  if (human == 0 || human > kMax7219Digits) return sem_barra;
+  const std::uint8_t com_barra = static_cast<std::uint8_t>(human - 1);
+  return (com_barra > sem_barra) ? com_barra : sem_barra;
+}
+
 std::uint8_t digit_register(std::size_t reading_position) {
   // Fora da faixa cai no ultimo digito em vez de escrever num registrador
   // qualquer: os enderecos vizinhos sao DecodeMode, Intensity e Shutdown, e

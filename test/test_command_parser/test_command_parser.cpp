@@ -382,7 +382,7 @@ void test_to_string_cobre_tudo(void) {
       CommandAction::SegTest, CommandAction::SegShow,
       CommandAction::SegAuto, CommandAction::PotStatus,
       CommandAction::GpioWrite, CommandAction::LedBar,
-      CommandAction::LedBlink,
+      CommandAction::LedBlink, CommandAction::DigitWrite,
   };
   for (const CommandAction a : acoes) {
     TEST_ASSERT_NOT_NULL(kanri::config::to_string(a));
@@ -471,6 +471,17 @@ void test_piscar_e_reconhecido(void) {
                         static_cast<int>(cmd.action));
 }
 
+// `dig 4 255` — digito e mascara, dois numeros com significados diferentes.
+void test_dig_le_digito_e_mascara(void) {
+  const char* linha = "dig 4 255";
+  const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
+  TEST_ASSERT_TRUE(cmd.ok());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(CommandAction::DigitWrite),
+                        static_cast<int>(cmd.action));
+  TEST_ASSERT_EQUAL_UINT32(4, cmd.number);
+  TEST_ASSERT_EQUAL_UINT32(255, cmd.number2);
+}
+
 void test_gpio_le_dois_numeros_na_ordem(void) {
   const char* linha = "gpio 22 1";
   const ParsedCommand cmd = parse_command(linha, std::strlen(linha));
@@ -544,6 +555,7 @@ int main() {
   RUN_TEST(test_toda_palavra_listada_e_reconhecida);
   RUN_TEST(test_leds_aceita_argumento_opcional);
   RUN_TEST(test_piscar_e_reconhecido);
+  RUN_TEST(test_dig_le_digito_e_mascara);
   RUN_TEST(test_gpio_le_dois_numeros_na_ordem);
   RUN_TEST(test_gpio_com_um_numero_so_e_recusado);
   RUN_TEST(test_gpio_com_texto_no_lugar_de_numero_e_recusado);

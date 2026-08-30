@@ -715,6 +715,41 @@ void executar(const kanri::config::ParsedCommand& cmd) {
       Serial.printf("[leds] piscar %s\n", ligou ? "LIGADO" : "desligado");
       return;
     }
+    case CommandAction::DigitWrite: {
+      const std::uint8_t human = (cmd.number > 255)
+                                     ? 255
+                                     : static_cast<std::uint8_t>(cmd.number);
+      const auto v = kanri::display::check_spare_digit(human);
+      if (v != kanri::display::SpareDigitVerdict::Ok) {
+        Serial.printf("[dig] digito %u recusado: %s\n",
+                      static_cast<unsigned>(cmd.number),
+                      kanri::display::to_string(v));
+        if (v == kanri::display::SpareDigitVerdict::UsedByDisplay) {
+          Serial.println(F("      para escrever no mostrador use: seg <texto>"));
+        }
+        return;
+      }
+
+      // ⚠️ O CHIP SO VARRE ATE O ScanLimit. Sem subir isto, os LEDs do
+      // digito 4 nao acendem — sem erro, sem pista. Mesmo tipo de falha
+      // silenciosa do GPIO 28.
+      g_seg.set_scan_limit(kanri::display::scan_limit_for_digit(human));
+
+      const std::uint8_t bits = (cmd.number2 > 255)
+                                    ? 0xFF
+                                    : static_cast<std::uint8_t>(cmd.number2);
+      g_seg.set_digit_raw(kanri::display::spare_digit_register(human), bits);
+
+      Serial.printf("[dig] digito %u = 0x%02X (%u LEDs acesos)\n",
+                    static_cast<unsigned>(human), static_cast<unsigned>(bits),
+                    static_cast<unsigned>(__builtin_popcount(bits)));
+      Serial.printf("      ScanLimit subiu para %u — o mostrador fica mais\n",
+                    static_cast<unsigned>(
+                        kanri::display::scan_limit_for_digit(human) + 1));
+      Serial.println(F("      fraco, porque o ciclo agora se divide entre mais"));
+      Serial.println(F("      digitos. E multiplexacao, nao defeito."));
+      return;
+    }
     case CommandAction::GpioWrite: {
       // Os pinos que ESTE firmware ja usa. Ficam aqui, junto das constantes,
       // porque e aqui que a alocacao mora — o pin_guard e generico e nao
